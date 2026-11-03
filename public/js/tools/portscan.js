@@ -84,9 +84,12 @@ export default {
 
     /* 按当前运行环境生成提示文案（云端上限 150，本地 2000） */
     function refreshHint() {
+      const advice =
+        serverEnv.runtime === 'workers'
+          ? '超时指每个端口等待响应的最长时间，默认 2000 毫秒，跨公网或高丢包建议适当加大。'
+          : '超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。';
       wrap.querySelector('#portHint').textContent =
-        `单次最多 ${maxPorts()} 个端口，支持逗号与区间混写。` +
-        '超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。';
+        `单次最多 ${maxPorts()} 个端口，支持逗号与区间混写。${advice}`;
     }
     refreshHint();
     if (serverEnv.runtime == null) {
@@ -122,6 +125,14 @@ export default {
 
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
       c.addEventListener('click', () => {
+        const n = portCount(c.dataset.v);
+        const cap = maxPorts();
+        if (n > cap) {
+          return toast(
+            `该范围含 ${n} 个端口，超过${serverEnv.runtime === 'workers' ? '云端' : '单次'}上限 ${cap} 个，请手动缩小`,
+            'err'
+          );
+        }
         portsEl.value = c.dataset.v;
       })
     );
