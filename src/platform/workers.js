@@ -6,16 +6,11 @@ import { DOH_SERVERS, dohRecords, dohResolve, dohReverse, pickEndpoint } from '.
 
 export default {
   name: 'workers',
+  /** 仅保留平台固有差异；端口上限、超时范围等统一参数见各 api 模块顶部常量 */
   limits: {
-    maxPorts: 2000,
-    portSuffix: '',
-    concurrency: 6,
-    minTimeout: 300,
-    dnsConcurrency: 4,
-    blockPrivateHost: true,
+    concurrency: 6, // 平台硬限制：单请求最多 6 个并发出站连接
+    blockPrivateHost: true, // 平台限制：cloudflare:sockets 无法连接内网地址
   },
-  geoOrder: ['ipwho', 'ip-api', 'ipinfo'],
-
   clientIp(request) {
     return request.headers.get('cf-connecting-ip') || null;
   },

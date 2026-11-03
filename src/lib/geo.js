@@ -1,5 +1,4 @@
-/* IP 归属地：三家免密钥服务兜底，任一成功即返回。
-   两家运行时都用 fetch，差别只是尝试顺序（Node 在境内更快的放前面）。 */
+/* IP 归属地：三家免密钥服务兜底，任一成功即返回。两端运行时使用同一查询顺序。 */
 
 const enc = encodeURIComponent;
 
@@ -78,12 +77,14 @@ const PROVIDERS = {
   },
 };
 
+/** 统一查询顺序：ipwho.is → ip-api.com → ipinfo.io */
+const GEO_ORDER = ['ipwho', 'ip-api', 'ipinfo'];
+
 /**
  * 查询 IP 归属地
  * @param ip 留空时由服务方按调用方出口 IP 处理（Node 本地即本机公网出口）
- * @param order 依次尝试的服务，默认 ip-api → ipwho.is → ipinfo.io
  */
-export async function geoLookup(ip, order = ['ip-api', 'ipwho', 'ipinfo']) {
+export async function geoLookup(ip, order = GEO_ORDER) {
   for (const key of order) {
     const p = PROVIDERS[key];
     if (!p) continue;

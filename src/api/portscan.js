@@ -1,5 +1,6 @@
 /* 端口扫描：并发模型与结果结构统一，单端口探测能力由平台提供。
-   两端上限均为 2000 端口；Node 并发 80、可扫内网；Workers 并发 6（平台连接数限制）且禁止内网。 */
+   两端共用同一套限制（上限 2000 端口、最小超时 100ms）；
+   仅有的差异是平台固有的：Node 并发 80、可扫内网；Workers 并发 6（平台连接数限制）且禁止内网。 */
 import {
   COMMON_PORTS,
   PORT_SERVICE,
@@ -10,6 +11,10 @@ import {
   parsePortSpec,
 } from '../lib/util.js';
 import { platform } from '../platform/index.js';
+
+/** 两端统一的限制 */
+const MAX_PORTS = 2000;
+const MIN_TIMEOUT = 100;
 
 /** 平台直接拒绝连接（内网 / 本机 / Cloudflare 网段）时给出的错误特征 */
 const BLOCKED = /cannot connect to the specified address|proxy request failed|prohibited|not allowed/i;
@@ -24,11 +29,8 @@ export default async function portScan(input) {
   }
 
   const spec = String(input.ports || '').trim();
-  const ports = parsePortSpec(spec || COMMON_PORTS.join(','), {
-    max: limits.maxPorts,
-    suffix: limits.portSuffix || '',
-  });
-  const timeoutMs = clamp(Number(input.timeout) || 2000, limits.minTimeout, 5000);
+  const ports = parsePortSpec(spec || COMMON_PORTS.join(','), { max: MAX_PORTS });
+  const timeoutMs = clamp(Number(input.timeout) || 2000, MIN_TIMEOUT, 5000);
 
   // 先解析成 IP：既方便展示实际目标，也让「禁止内网」的校验覆盖域名解析结果
   let target = host;
@@ -72,7 +74,7 @@ export default async function portScan(input) {
     open,
     elapsed: Date.now() - startedAt,
     timeout: timeoutMs,
-    limit: limits.maxPorts,
+    limit: MAX_PORTS,
     concurrency,
   };
 }

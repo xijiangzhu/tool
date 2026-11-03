@@ -39,9 +39,9 @@ export async function ipinfo(input, ctx) {
 
   let geo = null;
   if (ip && !isPrivateHost(ip)) {
-    geo = await geoLookup(ip, p.geoOrder).catch(() => null);
+    geo = await geoLookup(ip).catch(() => null);
   } else if (!ip) {
-    geo = await geoLookup('', p.geoOrder).catch(() => null);
+    geo = await geoLookup('').catch(() => null);
     if (geo && geo.ip) ip = geo.ip;
   }
   if (!geo) geo = p.cfGeo(ctx.request, ip || null);

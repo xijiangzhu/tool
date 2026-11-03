@@ -50,16 +50,11 @@ const now = () => Date.now();
 
 export default {
   name: 'node',
+  /** 仅保留平台固有差异；端口上限、超时范围等统一参数见各 api 模块顶部常量 */
   limits: {
-    maxPorts: 2000,
-    portSuffix: '',
     concurrency: 80,
-    minTimeout: 100,
-    dnsConcurrency: 8,
     blockPrivateHost: false,
   },
-  geoOrder: ['ip-api', 'ipwho', 'ipinfo'],
-
   /** 本机直连时没有可信的访问者 IP，交给第三方按出口 IP 识别 */
   clientIp() {
     return null;

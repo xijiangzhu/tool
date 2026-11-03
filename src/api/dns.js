@@ -5,6 +5,7 @@ import { platform } from '../platform/index.js';
 
 const DNS_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA'];
 const ALL_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'CAA']; // SRV 记录多且少见，不进「全部」
+const DNS_CONCURRENCY = 8; // 两端统一的批量查询并发
 /** 这些错误说明当前解析器本身不可用，值得换下一个服务器再试 */
 const SERVER_ERRORS = ['ECONNREFUSED', 'ETIMEOUT', 'ESERVFAIL', 'EDOH', 'EAI_AGAIN'];
 
@@ -67,10 +68,11 @@ export default async function dnsQuery(input) {
       };
     }
     const types = ipv ? ['PTR'] : ALL_TYPES;
-    const size = p.limits.dnsConcurrency || 4;
     const results = [];
-    for (let i = 0; i < types.length; i += size) {
-      results.push(...(await Promise.all(types.slice(i, i + size).map((t) => queryOne(t, srv)))));
+    for (let i = 0; i < types.length; i += DNS_CONCURRENCY) {
+      results.push(
+        ...(await Promise.all(types.slice(i, i + DNS_CONCURRENCY).map((t) => queryOne(t, srv))))
+      );
     }
     return {
       name,

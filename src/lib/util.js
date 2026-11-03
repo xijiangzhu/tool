@@ -142,7 +142,7 @@ export const PORT_SERVICE = {
 };
 
 /** 解析端口表达式（逗号与区间混写），超过上限立即报错 */
-export function parsePortSpec(spec, { max = 2000, suffix = '' } = {}) {
+export function parsePortSpec(spec, { max = 2000 } = {}) {
   const out = new Set();
   const parts = String(spec || '').split(/[,\s]+/).filter(Boolean);
   for (const p of parts) {
@@ -153,7 +153,7 @@ export function parsePortSpec(spec, { max = 2000, suffix = '' } = {}) {
       if (a < 1 || b > 65535 || a > b) throw new Error(`端口范围不合法：${p}`);
       for (let i = a; i <= b; i++) {
         out.add(i);
-        if (out.size > max) throw new Error(`单次最多扫描 ${max} 个端口${suffix}`);
+        if (out.size > max) throw new Error(`单次最多扫描 ${max} 个端口`);
       }
     } else if (/^\d{1,5}$/.test(p)) {
       const n = Number(p);
