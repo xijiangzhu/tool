@@ -1,9 +1,10 @@
 /* 极简 TLS 客户端：只握手到「拿到服务端证书」这一步就断开。
  *
- * 为什么需要它：云端 fetch 不暴露对端证书（没有 getPeerCertificate），
- * 但 cloudflare:sockets 允许裸 TCP，于是可以自己发 ClientHello、
- * 读 ServerHello + Certificate，再自己解 DER 拿有效期 / 颁发者 / SAN / 指纹。
- * 全程不依赖任何第三方接口，本地 Node 与云端 Workers 走同一份代码。
+ * 为什么需要它：无论本地还是云端，都不能依赖运行时自带的 TLS 栈拿证书
+ * （Workers 的 fetch 不暴露对端证书，Node 的 tls 又是本地专用的），
+ * 于是自己发 ClientHello、读 ServerHello + Certificate，再自己解 DER。
+ * 本地 Node（node:net）与云端 Workers（cloudflare:sockets）走同一份代码，
+ * 是全项目唯一的 TLS 检测实现。
  */
 
 import { certMatches } from './ct.js';
@@ -486,8 +487,12 @@ function putLen(n, bytes = 2) {
   return out;
 }
 
-/** 只声明 TLS 1.2（不送 supported_versions），这样服务端会回到 1.2，证书是明文可读的 */
-function buildClientHello(servername) {
+/**
+ * 构造 ClientHello。
+ * - 默认只声明 TLS 1.2（不送 supported_versions），服务端会回到 1.2，证书明文可读
+ * - probe 场景可指定 legacyVersion / supportedVersions（探测 TLS 1.3 时需要）
+ */
+export function buildClientHello(servername, { legacyVersion = 0x0303, supportedVersions = null, tls13Suites = false, keyShare = false } = {}) {
   const host = String(servername || '');
   const hostBytes = Array.from(new TextEncoder().encode(host));
 
@@ -510,13 +515,28 @@ function buildClientHello(servername) {
   // ALPN: http/1.1
   const alpn = [0x02, ...Array.from(new TextEncoder().encode('h2')), 0x08, ...Array.from(new TextEncoder().encode('http/1.1'))];
   ext.push(0x00, 0x10, ...putLen(alpn.length + 2, 2), ...putLen(alpn.length, 2), ...alpn);
+  // supported_versions：声明指定版本（探测 TLS 1.3 支持时用）
+  if (supportedVersions) {
+    const vers = [];
+    supportedVersions.forEach((v) => vers.push((v >> 8) & 0xff, v & 0xff));
+    ext.push(0x00, 0x2b, ...putLen(vers.length + 1, 2), ...putLen(vers.length, 1), ...vers);
+  }
+  // key_share：TLS 1.3 服务端要求 ClientHello 必带此扩展，缺了直接 fatal missing_extension。
+  // 注意数据结构是「2 字节向量总长 + 条目」——条目本身不另算外层长度会报 decode_error。
+  // 放一个随机 x25519 公钥（内容无所谓，选上 1.3 就立刻断开，不会真做密钥交换）
+  if (keyShare) {
+    const key = Array.from(randBytes(32));
+    const entry = [0x00, 0x1d, 0x00, 0x20].concat(key);
+    ext.push(0x00, 0x33, ...putLen(entry.length + 2, 2), ...putLen(entry.length, 2), ...entry);
+  }
 
   const random = Array.from(randBytes(32));
+  const suiteList = tls13Suites ? SUITES.concat([0x1301, 0x1302, 0x1303]) : SUITES;
   const suites = [];
-  SUITES.forEach((s) => suites.push((s >> 8) & 0xff, s & 0xff));
+  suiteList.forEach((s) => suites.push((s >> 8) & 0xff, s & 0xff));
 
   const body = []
-    .concat([0x03, 0x03], random, [0x00], putLen(suites.length, 2), suites, [0x01, 0x00], putLen(ext.length, 2), ext);
+    .concat([(legacyVersion >> 8) & 0xff, legacyVersion & 0xff], random, [0x00], putLen(suites.length, 2), suites, [0x01, 0x00], putLen(ext.length, 2), ext);
 
   const hs = [0x01].concat(putLen(body.length, 3), body);
   const rec = [0x16, 0x03, 0x01].concat(putLen(hs.length, 2), hs);
@@ -543,9 +563,30 @@ function parseServerHello(body) {
   let off = 34;
   const sidLen = body[off] || 0;
   off += 1 + sidLen;
-  if (off + 2 > body.length) return { version, suite: null };
+  if (off + 2 > body.length) return { version, suite: null, supportedVersion: null };
   const suite = (body[off] << 8) | body[off + 1];
-  return { version, suite };
+  off += 2;
+  // 压缩方法 + 扩展区；TLS 1.3 协商用 supported_versions(0x002b) 扩展回选
+  let supportedVersion = null;
+  if (off < body.length) {
+    const compLen = body[off] || 0;
+    off += 1 + compLen;
+    if (off + 2 <= body.length) {
+      const extLen = (body[off] << 8) | body[off + 1];
+      off += 2;
+      const extEnd = Math.min(body.length, off + extLen);
+      while (off + 4 <= extEnd) {
+        const eType = (body[off] << 8) | body[off + 1];
+        const eLen = (body[off + 2] << 8) | body[off + 3];
+        off += 4;
+        if (eType === 0x002b && eLen >= 2 && off + 2 <= extEnd) {
+          supportedVersion = (body[off] << 8) | body[off + 1];
+        }
+        off += eLen;
+      }
+    }
+  }
+  return { version, suite, supportedVersion };
 }
 
 /* ------------------------------- 握手主流程 ------------------------------- */
@@ -652,11 +693,83 @@ export async function rawTlsInspect(host, port, servername, timeoutMs = 8000) {
     cipher: suiteName ? { name: suiteName, version: null, bits: null, standardName: null } : null,
     chain,
     hostMatch: names.length ? certMatches(host, names) : null,
-    // 自解析拿不到系统信任库，信任链不做判断
+    // 自解析拿不到系统信任库，信任链不做判断（本地与云端行为一致）
     authorized: null,
     authorizationError: null,
     protocols: null,
     peerCertCount: chain.length,
     leafCn: leaf.cn,
   };
+}
+
+/* --------------------------- 逐版本协议支持探测 --------------------------- */
+
+/** 单版本探测：只声明该版本，看服务端是否愿意继续握手 */
+async function probeVersion(host, port, servername, version, timeoutMs) {
+  const p = await platform();
+  const sock = await p.tcpOpen(host, port, timeoutMs);
+  try {
+    const hello =
+      version === 0x0304
+        ? buildClientHello(servername, {
+            // 同时声明 1.3 与 1.2：支持 1.3 的服务端会用 supported_versions 扩展回选 1.3；
+            // 只支持 1.2 的则忽略扩展按 1.2 走，不会误伤
+            supportedVersions: [0x0304, 0x0303],
+            tls13Suites: true,
+            keyShare: true,
+          })
+        : buildClientHello(servername, { legacyVersion: version });
+    await sock.write(hello);
+    const deadline = Date.now() + timeoutMs;
+    let pending = new Uint8Array(0);
+    while (Date.now() < deadline) {
+      const chunk = await sock.read(Math.max(300, deadline - Date.now()));
+      if (!chunk) break;
+      let buf = concat(pending, chunk);
+      pending = new Uint8Array(0);
+      while (buf.length >= 5) {
+        const type = buf[0];
+        const len = (buf[3] << 8) | buf[4];
+        if (buf.length < 5 + len) {
+          pending = buf.slice();
+          break;
+        }
+        const payload = buf.subarray(5, 5 + len);
+        buf = buf.subarray(5 + len);
+        if (type === 0x15) return false; // alert：服务端拒绝该版本
+        if (type !== 0x16) continue;
+        if (payload.length >= 4 && payload[0] === 2) {
+          const sh = parseServerHello(payload.subarray(4));
+          if (!sh) return false;
+          if (version === 0x0304) return sh.supportedVersion === 0x0304;
+          return sh.version === version;
+        }
+      }
+    }
+  } catch (_) {
+    // 探测失败按不支持处理
+  } finally {
+    try {
+      sock.close();
+    } catch (_) {}
+  }
+  return false;
+}
+
+/** 四路并行探测 TLS 1.0~1.3 支持情况，返回 { TLSv1: bool, ... }（本地云端同一实现） */
+export async function rawTlsProtocols(host, port, servername, timeoutMs = 6000) {
+  const t = Math.max(2000, Math.min(timeoutMs, 8000));
+  const defs = [
+    ['TLSv1', 0x0301],
+    ['TLSv1.1', 0x0302],
+    ['TLSv1.2', 0x0303],
+    ['TLSv1.3', 0x0304],
+  ];
+  const out = {};
+  await Promise.all(
+    defs.map(async ([k, v]) => {
+      out[k] = await probeVersion(host, port, servername || host, v, t).catch(() => false);
+    })
+  );
+  return out;
 }

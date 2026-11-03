@@ -1,9 +1,10 @@
-/* SSL 证书检测：
-   - 本地有 TLS 能力：直接握手读证书（协议、套件、链、信任校验）
-   - 云端：自己发 ClientHello 解一次握手拿真实证书（rawtls），失败再退到
-     「CT 日志（证书字段）+ SSL Labs（协议支持与评级）+ 实时可达探测」 */
+/* SSL 证书检测（本地与云端同一条路）：
+   ① 自解析 TLS 握手拿线上真实证书（rawtls，平台无关）
+   ② 逐版本协议探测（rawtls，四路并行）
+   ③ 握手拿不到（目标不在线 / 非 TLS 服务 / 被拦截）才退到
+      「CT 日志（证书字段）+ SSL Labs（协议支持与评级）+ 实时可达探测」 */
 import { ctLookup, formatFingerprint } from '../lib/ct.js';
-import { rawTlsInspect } from '../lib/rawtls.js';
+import { rawTlsInspect, rawTlsProtocols } from '../lib/rawtls.js';
 import { ssllabsInfo } from '../lib/ssllabs.js';
 import { clamp, isIP } from '../lib/util.js';
 import { platform } from '../platform/index.js';
@@ -84,18 +85,6 @@ export default async function sslCheck(input) {
     }
   }
 
-  if (p.caps.tls) {
-    let info;
-    try {
-      info = await p.inspectTls(host, port, { servername: host, timeoutMs });
-    } catch (e) {
-      throw new Error(
-        `TLS 握手失败：${e.code ? `${e.code} - ` : ''}${e.message}（请确认 ${host}:${port} 提供 TLS 服务）`
-      );
-    }
-    return fromHandshake({ host, port, resolved, info, started });
-  }
-
   const key = `${host}:${port}`;
   const cached = input.refresh ? null : cacheGet(key);
   if (cached) return { ...cached, resolved, elapsed: Date.now() - started, cached: true };
@@ -103,7 +92,7 @@ export default async function sslCheck(input) {
   // 硬截止 20 秒：Workers 单个请求有固定时长上限，不允许外部源把请求拖死
   const deadline = started + 20000;
 
-  // ① 自己发一次 ClientHello：云端只要能连上 443，就能拿到真实证书，不依赖任何第三方
+  // ① 自己发一次 ClientHello：本地与云端同一条路，能连上就能拿到真实证书，不依赖任何第三方
   let handshake = null;
   let handshakeError = null;
   try {
@@ -113,6 +102,10 @@ export default async function sslCheck(input) {
   }
 
   if (handshake && handshake.chain && handshake.chain.length) {
+    // ② 逐版本协议探测：四路并行握手，各平台共用同一实现
+    const budget = Math.min(6000, Math.max(2500, deadline - Date.now()));
+    handshake.protocols = await rawTlsProtocols(host, port, host, budget).catch(() => null);
+
     const result = fromHandshake({ host, port, resolved, info: handshake, started });
     result.source = 'TLS 握手';
     result.dnsError = dnsError;

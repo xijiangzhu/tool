@@ -167,7 +167,7 @@ export default {
                         : esc((d.live && d.live.error) || '无法建立 TLS 连接')
                     }</span>
                   </div>
-                  <div class="note" style="margin-bottom:12px">云端环境读不到 TLS 对端证书，检测数据来自${
+                  <div class="note" style="margin-bottom:12px">无法与目标直接完成 TLS 握手，检测数据来自${
                     esc(d.source || '公共数据源')
                   }${d.protocols ? '' : '，协议与加密套件不可用'}</div>`
                 : ''
@@ -214,7 +214,7 @@ export default {
               <tr><th>主机名校验</th><td>${d.hostMatch === null ? '<span class="muted">未知</span>' : d.hostMatch ? '<span class="badge ok">匹配</span>' : `<span class="badge err">不匹配（证书 CN/SAN 未包含 ${esc(d.host)}）</span>`}</td></tr>
               <tr><th>信任链校验</th><td>${
                 d.authorized === null || d.authorized === undefined
-                  ? '<span class="muted">未知（云端未做链路校验）</span>'
+                  ? '<span class="muted">未知（未做系统信任链校验）</span>'
                   : d.authorized
                   ? '<span class="badge ok">通过</span>'
                   : `<span class="badge err">未通过${d.authorizationError ? '：' + esc(d.authorizationError) : ''}</span>`
@@ -252,8 +252,8 @@ export default {
               d.mode !== 'tls'
                 ? d.protocols
                   ? '协议支持情况来自 SSL Labs 的服务端扫描'
-                  : '云端模式未做逐版本握手探测，无法判断 TLS 1.0 / 1.1 支持情况'
-                : `本次连接使用：${esc(d.protocol || '-')} · 套件 ${esc((d.cipher && d.cipher.name) || '-')}`
+                  : '未能获取逐版本协议探测结果'
+                : `本次连接使用：${esc(d.protocol || '-')} · 套件 ${esc((d.cipher && d.cipher.name) || '-')}` 
             }</div>
           </div>
         </section>

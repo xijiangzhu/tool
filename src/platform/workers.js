@@ -1,12 +1,12 @@
 /* Workers 平台实现：DoH 解析、cloudflare:sockets 探测、边缘信息、ASSETS 静态资源。
-   云端拿不到 TLS 对端证书与本机网卡，对应能力由调用方降级处理。 */
+   TLS 证书检测统一走 lib/rawtls.js（与本地同一份代码）。 */
 
 import { connect } from 'cloudflare:sockets';
 import { DOH_SERVERS, dohRecords, dohResolve, dohReverse, pickEndpoint } from '../lib/doh.js';
 
 export default {
   name: 'workers',
-  caps: { tls: false, tcp: true, nics: false, httpTimings: false },
+  caps: { tcp: true, nics: false, httpTimings: false },
   limits: {
     maxPorts: 150,
     portSuffix: '（云端并发受限）',

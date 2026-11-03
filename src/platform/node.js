@@ -1,5 +1,6 @@
-/* Node 平台实现：原生 DNS / TLS / TCP / 静态文件。
-   只有 Node 能用到的内置模块都在这里按需动态加载，Workers 打包时不会被解析到。 */
+/* Node 平台实现：原生 DNS / TCP / 静态文件。
+   只有 Node 能用到的内置模块都在这里按需动态加载，Workers 打包时不会被解析到。
+   TLS 检测不走这里的 tls 模块，统一走 lib/rawtls.js（与云端同一份代码）。 */
 
 import { friendlyDnsError } from '../lib/util.js';
 
@@ -22,13 +23,11 @@ let libsPromise = null;
 function libs() {
   if (!libsPromise) {
     libsPromise = (async () => {
-      const [http, https, tls, net, dns, crypto, os, fs, path] = await Promise.all([
+      const [http, https, net, dns, os, fs, path] = await Promise.all([
         load('http'),
         load('https'),
-        load('tls'),
         load('net'),
         load('dns'),
-        load('crypto'),
         load('os'),
         load('fs'),
         load('path'),
@@ -36,10 +35,8 @@ function libs() {
       return {
         http: http.default,
         https: https.default,
-        tls: tls.default,
         net: net.default,
         dns: dns.default,
-        crypto: crypto.default,
         os: os.default,
         fs: fs.default,
         path: path.default,
@@ -51,171 +48,11 @@ function libs() {
 
 const now = () => Date.now();
 
-/* ------------------------------- 证书结构整理 ------------------------------- */
-
-function parseCertDate(str) {
-  if (!str) return null;
-  const d = new Date(str);
-  return isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-const safeGet = (fn) => {
-  try {
-    return fn();
-  } catch (_) {
-    return undefined;
-  }
-};
-
-function stringifyDN(obj) {
-  if (!obj || typeof obj !== 'object') return obj || null;
-  const order = ['CN', 'O', 'OU', 'C', 'ST', 'L', 'emailAddress'];
-  const parts = [];
-  for (const k of order) if (obj[k] !== undefined) parts.push(`${k}=${obj[k]}`);
-  for (const k of Object.keys(obj)) {
-    if (!order.includes(k) && obj[k] !== undefined) parts.push(`${k}=${obj[k]}`);
-  }
-  return parts.join(', ') || null;
-}
-
-/** 把 getPeerCertificate 返回的对象整理成前端友好的结构 */
-function normalizeCert(peerCert, crypto) {
-  const out = {
-    subject: null,
-    issuer: null,
-    subjectAltName: [],
-    validFrom: null,
-    validTo: null,
-    serialNumber: null,
-    fingerprint256: null,
-    publicKey: { type: null, bits: null },
-    ca: false,
-    selfSigned: false,
-    keyUsage: null,
-    infoAccess: null,
-  };
-  if (!peerCert) return out;
-
-  let x509 = null;
-  try {
-    if (peerCert.raw) x509 = new crypto.X509Certificate(peerCert.raw);
-  } catch (_) {
-    x509 = null;
-  }
-
-  const src = x509 || peerCert;
-  const flat = (s) => (typeof s === 'string' ? s.replace(/\s*\r?\n\s*/g, ', ').trim() : stringifyDN(s));
-  out.subject = flat(src.subject);
-  out.issuer = flat(src.issuer);
-
-  out.validFrom = parseCertDate(x509 ? x509.validFrom : peerCert.valid_from);
-  out.validTo = parseCertDate(x509 ? x509.validTo : peerCert.valid_to);
-
-  let san = x509 ? safeGet(() => x509.subjectAltName) : null;
-  if (!san) san = peerCert.subjectaltname;
-  if (typeof san === 'string' && san) {
-    out.subjectAltName = san
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => {
-        const idx = s.indexOf(':');
-        if (idx === -1) return { type: 'OTHER', value: s };
-        return { type: s.slice(0, idx).trim(), value: s.slice(idx + 1).trim() };
-      });
-  }
-
-  out.serialNumber = src.serialNumber || null;
-  if (x509) {
-    out.fingerprint256 = x509.fingerprint256 || null;
-    try {
-      const pk = x509.publicKey;
-      let bits = pk ? pk.asymmetricKeySize : null;
-      if (!bits && pk && pk.asymmetricKeyDetails) {
-        bits = pk.asymmetricKeyDetails.modulusLength || (pk.asymmetricKeyDetails.namedCurve ? undefined : null);
-      }
-      out.publicKey = { type: pk ? pk.asymmetricKeyType : null, bits: bits || null };
-    } catch (_) {}
-    out.ca = !!safeGet(() => x509.ca);
-    out.keyUsage = safeGet(() => x509.keyUsage) || null;
-    out.infoAccess = safeGet(() => x509.infoAccess) || null;
-  } else {
-    out.fingerprint256 = peerCert.fingerprint256 || null;
-    out.publicKey = {
-      type: peerCert.asn1Curve ? 'ec' : peerCert.modulus ? 'rsa' : null,
-      bits: peerCert.bits || null,
-    };
-  }
-
-  out.selfSigned = !!out.subject && out.subject === out.issuer;
-  return out;
-}
-
-/* --------------------------------- TLS 握手 -------------------------------- */
-
-async function tlsConnect(host, port, servername, timeoutMs, extra = {}) {
-  const { tls } = await libs();
-  return new Promise((resolve, reject) => {
-    const socket = tls.connect(
-      { host, port, servername: servername || host, rejectUnauthorized: false, timeout: timeoutMs, ...extra },
-      () => {
-        try {
-          const peer = socket.getPeerCertificate(true);
-          const cipher = socket.getCipher();
-          const result = {
-            protocol: socket.getProtocol(),
-            cipher: cipher ? { name: cipher.name, version: cipher.version, bits: cipher.bits } : null,
-            authorized: socket.authorized,
-            authorizationError: socket.authorizationError || null,
-            peer,
-          };
-          socket.destroy();
-          resolve(result);
-        } catch (e) {
-          socket.destroy();
-          reject(e);
-        }
-      }
-    );
-    socket.setTimeout(timeoutMs);
-    socket.on('timeout', () => {
-      socket.destroy();
-      reject(new Error('连接超时'));
-    });
-    socket.on('error', (e) => reject(e));
-  });
-}
-
-/** 探测服务器支持的 TLS 版本 */
-async function probeProtocols(host, port, servername, timeoutMs) {
-  const versions = [
-    { key: 'TLSv1', min: 'TLSv1', max: 'TLSv1' },
-    { key: 'TLSv1.1', min: 'TLSv1.1', max: 'TLSv1.1' },
-    { key: 'TLSv1.2', min: 'TLSv1.2', max: 'TLSv1.2' },
-    { key: 'TLSv1.3', min: 'TLSv1.3', max: 'TLSv1.3' },
-  ];
-  const out = {};
-  await Promise.all(
-    versions.map(async (v) => {
-      try {
-        await tlsConnect(host, port, servername, Math.min(timeoutMs, 8000), {
-          minVersion: v.min,
-          maxVersion: v.max,
-        });
-        out[v.key] = true;
-      } catch (_) {
-        out[v.key] = false;
-      }
-    })
-  );
-  return out;
-}
-
 /* --------------------------------- 平台实现 -------------------------------- */
 
 export default {
   name: 'node',
-  caps: { tls: true, tcp: true, nics: true, httpTimings: true },
+  caps: { tcp: true, nics: true, httpTimings: true },
   limits: {
     maxPorts: 2000,
     portSuffix: '',
@@ -409,16 +246,22 @@ export default {
     const sock = new net.Socket();
     sock.setTimeout(timeoutMs);
     await new Promise((resolve, reject) => {
-      const onErr = (e) => reject(e);
-      sock.once('connect', () => {
-        sock.removeListener('error', onErr);
-        resolve();
-      });
+      // error 监听必须常驻：超时后底层连接可能还会迟到一个 ETIMEDOUT，
+      // 没人接住就会变成 unhandled 'error' 直接杀死整个进程
+      const onErr = (e) => {
+        try {
+          sock.destroy();
+        } catch (_) {}
+        reject(e);
+      };
+      sock.once('connect', () => resolve());
       sock.once('timeout', () => {
-        sock.removeListener('error', onErr);
+        try {
+          sock.destroy();
+        } catch (_) {}
         reject(new Error('连接超时'));
       });
-      sock.once('error', onErr);
+      sock.on('error', onErr);
       sock.connect(port, host);
     });
     sock.setTimeout(0);
@@ -477,45 +320,6 @@ export default {
       },
     };
   },
-
-  /** 真实 TLS 握手：拿协议、套件、证书链、主机名匹配 */
-  async inspectTls(host, port, { servername, timeoutMs }) {
-    const { crypto } = await libs();
-    const conn = await tlsConnect(host, port, servername, timeoutMs);
-
-    const chain = [];
-    let cur = conn.peer;
-    let guard = 0;
-    while (cur && Object.keys(cur).length && guard++ < 10) {
-      chain.push(normalizeCert(cur, crypto));
-      const next = cur.issuerCertificate;
-      const leaf = chain[0];
-      if (!next || next === cur || (leaf.subject && next.subject === cur.subject && next.issuer === cur.issuer)) break;
-      cur = next;
-    }
-
-    let hostMatch = null;
-    try {
-      if (conn.peer && conn.peer.raw) {
-        const x = new crypto.X509Certificate(conn.peer.raw);
-        hostMatch = !!(x.checkHost(servername, { subject: 'default' }) || x.checkHost(servername, { subject: 'always' }));
-      }
-    } catch (_) {
-      hostMatch = null;
-    }
-
-    return {
-      protocol: conn.protocol,
-      cipher: conn.cipher,
-      authorized: conn.authorized,
-      authorizationError: conn.authorizationError,
-      chain,
-      hostMatch,
-      protocols: await probeProtocols(host, port, servername, timeoutMs),
-    };
-  },
-
-  /** 静态资源：读 public/ 目录，未命中回退 index.html */
 
   /** 静态资源：读 public/ 目录，未命中回退 index.html */
   async serveStatic(request) {
