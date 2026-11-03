@@ -28,7 +28,7 @@ export default async function portScan(input) {
     max: limits.maxPorts,
     suffix: limits.portSuffix || '',
   });
-  const timeoutMs = clamp(Number(input.timeout) || (limits.blockPrivateHost ? 1200 : 800), limits.minTimeout, 5000);
+  const timeoutMs = clamp(Number(input.timeout) || 2000, limits.minTimeout, 5000);
 
   // 先解析成 IP：既方便展示实际目标，也让「禁止内网」的校验覆盖域名解析结果
   let target = host;

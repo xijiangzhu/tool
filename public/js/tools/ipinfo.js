@@ -26,6 +26,47 @@ function coordText(g) {
   return `${g.lat}, ${g.lon}`;
 }
 
+/* 双栈网络下浏览器会优先用 IPv6 连到站点，服务端只能看到 IPv6 出口；
+   这里由浏览器自己去问一个「只有 A 记录」的接口，拿到同一网络的 IPv4 出口地址。 */
+const V4_SOURCES = [
+  { url: 'https://v4.ident.me', json: false },
+  { url: 'https://ipv4.icanhazip.com', json: false },
+  { url: 'https://api.ipify.org?format=json', json: true },
+];
+const V4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+async function detectIpv4(budget = 3200) {
+  const deadline = Date.now() + budget;
+  for (const s of V4_SOURCES) {
+    const left = deadline - Date.now();
+    if (left <= 200) break;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.min(1600, left));
+    try {
+      const res = await fetch(s.url, { signal: ctrl.signal, cache: 'no-store' });
+      if (!res.ok) continue;
+      const text = (await res.text()).trim();
+      const v = s.json ? (JSON.parse(text).ip || '') : text;
+      if (V4_RE.test(v)) return v;
+    } catch (_) {
+      /* 换下一个来源 */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
+
+/** 出口是 IPv6 时补一次 IPv4 查询：拿到就用 IPv4 作为主显示，IPv6 收进副行 */
+async function preferIpv4(d) {
+  if (!d || d.version !== 'IPv6' || !d.ip) return d;
+  const v4 = await detectIpv4();
+  if (!v4 || v4 === d.ip) return d;
+  const r = await api('/api/net/ipinfo', { ip: v4 });
+  if (!r || !r.ok || !r.data || r.data.version !== 'IPv4') return d;
+  return { ...r.data, altV6: d.ip };
+}
+
 export default {
   id: 'ipinfo',
   name: 'IP 地址查询',
@@ -60,7 +101,7 @@ export default {
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>我的 IP 信息</div>
           <div class="row">
-            <span class="card-note">公网出口与本机内网地址</span>
+            <span class="card-note" id="myipNote">公网出口与本机内网地址</span>
             <button class="btn btn-sm btn-ghost" id="reload" title="重新读取本机信息">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4v5.4h-5.4"/></svg>
               刷新
@@ -118,6 +159,7 @@ export default {
     const stOs = wrap.querySelector('#stOs');
     const stCount = wrap.querySelector('#stCount');
     const reloadBtn = wrap.querySelector('#reload');
+    const myipNote = wrap.querySelector('#myipNote');
 
     /* --------------------------- 本机网卡 / 出口 IP --------------------------- */
     /** 取 CIDR 的掩码后缀，如 192.168.20.66/24 → /24 */
@@ -128,10 +170,16 @@ export default {
 
     function renderInterfaces(d) {
       const all = d.interfaces || [];
-      // 云端运行（Cloudflare Workers）读不到本机网卡：隐藏内网区块，只保留公网出口
+      // 云端运行（Cloudflare Workers）读不到本机网卡：保留两栏版式，内网一侧写明原因
       if (d.runtime === 'workers' || (d.platform === 'cloudflare' && !all.length)) {
-        lanCell.hidden = true;
-        hero.classList.add('single');
+        lanCell.hidden = false;
+        hero.classList.remove('single');
+        lanIpEl.textContent = '不可读取';
+        lanIpEl.style.fontSize = '16px';
+        lanIpEl.style.color = 'var(--muted)';
+        lanBadgeEl.className = 'badge mute';
+        lanBadgeEl.textContent = '云端限制';
+        lanSubEl.textContent = '边缘节点位于你的局域网之外';
         kHost.textContent = '运行环境';
         kOs.textContent = '边缘节点';
         kCount.textContent = '本机网卡';
@@ -140,12 +188,18 @@ export default {
         stCount.textContent = '不可读取';
         stCount.classList.remove('mono');
         ifList.hidden = true;
-        ifNote.hidden = true;
+        ifNote.hidden = false;
+        ifNote.textContent =
+          '线上只能拿到你的公网出口 IP：Worker 跑在 Cloudflare 边缘节点，读到的是节点网卡；浏览器也会用 mDNS 屏蔽局域网地址。需要查看本机内网 IP，请在本地运行 npm start 后访问 localhost。';
+        myipNote.textContent = '公网出口 IP · 云端运行环境';
         return;
       }
       lanCell.hidden = false;
       ifList.hidden = false;
       hero.classList.remove('single');
+      lanIpEl.style.fontSize = '';
+      lanIpEl.style.color = '';
+      myipNote.textContent = '公网出口与本机内网地址';
       kHost.textContent = '主机名';
       kOs.textContent = '系统';
       kCount.textContent = '地址数';
@@ -210,9 +264,10 @@ export default {
       }
       pubIpEl.textContent = d.ip;
       pubBadgeEl.className = 'badge ok';
-      pubBadgeEl.textContent = d.scope ? d.scope.label : '公网地址';
+      pubBadgeEl.textContent = d.altV6 ? 'IPv4' : d.scope ? d.scope.label : '公网地址';
       pubWhereEl.textContent = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
-      pubMetaEl.textContent = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
+      const meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
+      pubMetaEl.textContent = d.altV6 ? `${meta} · IPv6 出口 ${d.altV6}（已优先显示 IPv4）` : meta;
     }
 
     async function loadLocal() {
@@ -228,9 +283,17 @@ export default {
           ifList.innerHTML = `<li class="myip-row muted">${esc(e.message)}</li>`;
         });
       const pubTask = api('/api/net/ipinfo', { ip: '' })
-        .then((r) => {
-          if (r.ok) renderPublic(r.data);
-          else throw new Error(r.error);
+        .then(async (r) => {
+          if (!r.ok) throw new Error(r.error);
+          const d = r.data;
+          renderPublic(d);
+          // 双栈网络下服务端先看到 IPv6：浏览器再自查一次 IPv4 出口并升级显示
+          if (d && d.version === 'IPv6') {
+            pubMetaEl.textContent = 'IPv6 出口，正在查找同一网络的 IPv4…';
+            const better = await preferIpv4(d);
+            if (better !== d) renderPublic(better);
+            else if (pubMetaEl.textContent.startsWith('IPv6 出口')) renderPublic(d);
+          }
         })
         .catch((e) => {
           pubIpEl.textContent = '—';
@@ -266,6 +329,7 @@ export default {
           <span class="ipq-ip mono">${esc(d.ip || '未知')}</span>
           <span class="badge ${badge}">${esc(d.scope ? d.scope.label : '未知')}</span>
           <span class="muted">${esc(d.from ? `来自域名 ${d.from}` : loc || '')}</span>
+          ${d.altV6 ? `<span class="muted">IPv6 出口 ${esc(d.altV6)}</span>` : ''}
           <span class="spacer"></span>
           <span class="muted">${esc((g && g.provider) || '归属地信息不可用')} · ${d.elapsed} ms</span>
         </div>`;
@@ -308,7 +372,10 @@ export default {
       try {
         const r = await api('/api/net/ipinfo', { ip: qEl.value.trim() });
         if (!r.ok) throw new Error(r.error);
-        renderIp(r.data);
+        let d = r.data;
+        // 「本机出口」留空查询同样优先 IPv4
+        if (!qEl.value.trim()) d = await preferIpv4(d);
+        renderIp(d);
       } catch (e) {
         outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {

@@ -36,7 +36,7 @@ export default {
             <div class="field w170">
               <label class="lb">单端口超时</label>
               <div class="input-suffix">
-                <input type="number" id="timeout" value="800" min="100" max="5000" step="100" />
+                <input type="number" id="timeout" value="2000" min="100" max="5000" step="100" />
                 <span>毫秒</span>
               </div>
             </div>
@@ -48,7 +48,7 @@ export default {
             <div class="chips mt8">
               ${PRESETS.map(([n, v]) => `<span class="chip" data-v="${v}">${n}</span>`).join('')}
             </div>
-            <div class="hint">单次最多 2000 个端口（部署到 Cloudflare Workers 时上限 150 个），支持逗号与区间混写。超时指每个端口等待响应的最长时间：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 1000 以上。</div>
+            <div class="hint">单次最多 2000 个端口（部署到 Cloudflare Workers 时上限 150 个），支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。</div>
           </div>
 
           <div class="btn-row">

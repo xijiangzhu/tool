@@ -195,7 +195,26 @@ let current = null;
 const MODES = {
   local: { cls: 'page-mode', text: '纯本地运算', tip: '全部计算在浏览器内完成，数据不会离开本机' },
   net: { cls: 'page-mode net', text: '经本机服务转发', tip: '请求由本地 Node 服务代发，浏览器不直连第三方' },
+  edge: { cls: 'page-mode net', text: '经云端服务转发', tip: '请求由 Cloudflare Workers 边缘节点代发，浏览器不直连第三方' },
 };
+
+/* 服务端运行环境：本地 Node 还是 Cloudflare Workers，决定「运行方式」胶囊文案 */
+let runtime = null;
+fetch('/api/health')
+  .then((r) => r.json())
+  .then((j) => {
+    runtime = j && j.runtime ? j.runtime : null;
+    const tool = current && TOOLS.find((t) => t.id === current);
+    if (runtime === 'workers' && tool && tool.net) applyMode(tool);
+  })
+  .catch(() => {});
+
+function applyMode(tool) {
+  const mode = tool.net ? (runtime === 'workers' ? MODES.edge : MODES.net) : MODES.local;
+  modeEl.className = mode.cls;
+  modeEl.title = mode.tip;
+  modeEl.innerHTML = `<span class="dot"></span>${mode.text}`;
+}
 
 async function route() {
   const id = (location.hash || '').replace('#/', '') || TOOLS[0].id;
@@ -207,10 +226,7 @@ async function route() {
   descEl.textContent = tool.desc;
   groupEl.textContent = tool.group;
   iconEl.innerHTML = tool.icon;
-  const mode = tool.net ? MODES.net : MODES.local;
-  modeEl.className = mode.cls;
-  modeEl.title = mode.tip;
-  modeEl.innerHTML = `<span class="dot"></span>${mode.text}`;
+  applyMode(tool);
   document.title = `${tool.name} · 运维工具箱`;
 
   setActive(tool.id);
