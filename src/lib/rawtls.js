@@ -138,11 +138,7 @@ function parseName(buf, t) {
       parts.push({ k: NAME_OID[oid] || oid, v: stringVal(buf, valT) });
     }
   }
-  const pick = (k) => {
-    const hit = parts.find((x) => x.k === k);
-    return hit ? hit.v : null;
-  };
-  return { str: parts.map((x) => `${x.k}=${x.v}`).join(', '), cn: pick('CN'), o: pick('O') };
+  return parts.map((x) => `${x.k}=${x.v}`).join(', ');
 }
 
 /** UTCTime(0x17) / GeneralizedTime(0x18) → 毫秒时间戳 */
@@ -198,16 +194,6 @@ function parseSAN(buf) {
   return out;
 }
 
-function parseBasicConstraints(buf) {
-  const seq = tlv(buf, 0);
-  if (!seq || seq.start >= seq.end) return { ca: false };
-  if (buf[seq.start] === 0x01) {
-    const t = tlv(buf, seq.start);
-    return { ca: !!(t && buf[t.start] !== 0) };
-  }
-  return { ca: false };
-}
-
 const KU_NAMES = [
   'digitalSignature',
   'nonRepudiation',
@@ -232,52 +218,6 @@ function parseKeyUsage(buf) {
     if (buf[idx] & (0x80 >> (i % 8))) out.push(KU_NAMES[i]);
   }
   return out;
-}
-
-const EKU_OID = {
-  '1.3.6.1.5.5.7.3.1': 'serverAuth',
-  '1.3.6.1.5.5.7.3.2': 'clientAuth',
-  '1.3.6.1.5.5.7.3.3': 'codeSigning',
-  '1.3.6.1.5.5.7.3.4': 'emailProtection',
-  '1.3.6.1.5.5.7.3.8': 'timeStamping',
-  '1.3.6.1.5.5.7.3.9': 'OCSPSigning',
-};
-
-function parseEKU(buf) {
-  const seq = tlv(buf, 0);
-  if (!seq) return [];
-  const out = [];
-  let p = seq.start;
-  while (p < seq.end) {
-    const t = tlv(buf, p);
-    if (!t) break;
-    p = t.next;
-    const oid = decodeOid(buf.subarray(t.start, t.end));
-    out.push(EKU_OID[oid] || oid);
-  }
-  return out;
-}
-
-const AIA_OID = { '1.3.6.1.5.5.7.48.1': 'OCSP', '1.3.6.1.5.5.7.48.2': 'caIssuers' };
-
-function parseAIA(buf) {
-  const seq = tlv(buf, 0);
-  if (!seq) return null;
-  const out = {};
-  let p = seq.start;
-  while (p < seq.end) {
-    const ad = tlv(buf, p);
-    if (!ad) break;
-    p = ad.next;
-    const oidT = tlv(buf, ad.start);
-    if (!oidT) continue;
-    const name = AIA_OID[decodeOid(buf.subarray(oidT.start, oidT.end))];
-    if (!name) continue;
-    const gn = tlv(buf, oidT.next);
-    if (!gn) continue;
-    out[name] = (out[name] || []).concat(stringVal(buf, gn));
-  }
-  return Object.keys(out).length ? out : null;
 }
 
 const EC_BITS = {
@@ -312,7 +252,7 @@ function parseCert(der) {
   q = sigAlgT ? sigAlgT.next : q;
 
   const issuerT = tlv(der, q);
-  const issuerObj = issuerT ? parseName(der, issuerT) : { str: null, cn: null, o: null };
+  const issuer = issuerT ? parseName(der, issuerT) : null;
   q = issuerT ? issuerT.next : q;
 
   let validFrom = null;
@@ -331,7 +271,7 @@ function parseCert(der) {
   q = validT ? validT.next : q;
 
   const subjectT = tlv(der, q);
-  const subjectObj = subjectT ? parseName(der, subjectT) : { str: null, cn: null, o: null };
+  const subject = subjectT ? parseName(der, subjectT) : null;
   q = subjectT ? subjectT.next : q;
 
   let publicKey = { type: null, bits: null };
@@ -389,10 +329,7 @@ function parseCert(der) {
   }
 
   let subjectAltName = [];
-  let ca = false;
   let keyUsage = null;
-  let extKeyUsage = [];
-  let infoAccess = null;
 
   if (q < tbs.end && der[q] === 0xa3) {
     const wrapT = tlv(der, q);
@@ -416,30 +353,23 @@ function parseCert(der) {
         if (!valT) continue;
         const payload = der.subarray(valT.start, valT.end);
         if (oid === '2.5.29.17') subjectAltName = parseSAN(payload);
-        else if (oid === '2.5.29.19') ca = !!parseBasicConstraints(payload).ca;
         else if (oid === '2.5.29.15') keyUsage = parseKeyUsage(payload);
-        else if (oid === '2.5.29.37') extKeyUsage = parseEKU(payload);
-        else if (oid === '1.3.6.1.5.5.7.1.1') infoAccess = parseAIA(payload);
       }
     }
   }
 
-  const selfSigned = !!subjectObj.str && subjectObj.str === issuerObj.str;
+  const selfSigned = !!subject && subject === issuer;
   return {
-    subject: subjectObj.str,
-    cn: subjectObj.cn,
-    issuer: issuerObj.str,
+    subject,
+    issuer,
     subjectAltName,
     validFrom: iso(validFrom),
     validTo: iso(validTo),
     serialNumber,
     fingerprint256: null, // 由调用方异步补齐（需要 await）
     publicKey,
-    ca,
     selfSigned,
     keyUsage,
-    extKeyUsage,
-    infoAccess,
     der,
   };
 }
@@ -683,7 +613,6 @@ export async function rawTlsInspect(host, port, servername, timeoutMs = 8000) {
   if (!chain.length) throw new Error('证书解析失败');
 
   const names = (chain[0].subjectAltName || []).filter((x) => x.type === 'DNS').map((x) => x.value);
-  const leaf = chain[0];
   const sh = parseServerHello(hello) || { version: null, suite: null };
   const protocol = VERSION_NAMES[sh.version] || null;
   const suiteName = sh.suite ? SUITE_NAMES[sh.suite] || `0x${sh.suite.toString(16)}` : null;
@@ -697,8 +626,6 @@ export async function rawTlsInspect(host, port, servername, timeoutMs = 8000) {
     authorized: null,
     authorizationError: null,
     protocols: null,
-    peerCertCount: chain.length,
-    leafCn: leaf.cn,
   };
 }
 

@@ -311,10 +311,8 @@ function buildFromCt(host, port, ct) {
     serialNumber: cert.serial,
     fingerprint256: cert.fingerprint ? formatFingerprint(cert.fingerprint) : null,
     publicKey: { type: null, bits: null },
-    ca: false,
     selfSigned: false,
     keyUsage: null,
-    infoAccess: null,
   };
   return remoteResult({
     host,
