@@ -6,7 +6,6 @@ import { DOH_SERVERS, dohRecords, dohResolve, dohReverse, pickEndpoint } from '.
 
 export default {
   name: 'workers',
-  caps: { tcp: true, nics: false, httpTimings: false },
   limits: {
     maxPorts: 150,
     portSuffix: '（云端并发受限）',

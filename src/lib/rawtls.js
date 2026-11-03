@@ -492,7 +492,7 @@ function putLen(n, bytes = 2) {
  * - 默认只声明 TLS 1.2（不送 supported_versions），服务端会回到 1.2，证书明文可读
  * - probe 场景可指定 legacyVersion / supportedVersions（探测 TLS 1.3 时需要）
  */
-export function buildClientHello(servername, { legacyVersion = 0x0303, supportedVersions = null, tls13Suites = false, keyShare = false } = {}) {
+function buildClientHello(servername, { legacyVersion = 0x0303, supportedVersions = null, tls13Suites = false, keyShare = false } = {}) {
   const host = String(servername || '');
   const hostBytes = Array.from(new TextEncoder().encode(host));
 

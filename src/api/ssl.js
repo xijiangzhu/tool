@@ -114,7 +114,7 @@ export default async function sslCheck(input) {
     return result;
   }
 
-  // ② 握手拿不到（端口不通 / 非 TLS 服务 / 被拦截）：退回公共数据源
+  // ③ 握手拿不到（端口不通 / 非 TLS 服务 / 被拦截）：退回公共数据源
   if (isIP(host)) {
     throw new Error(
       `无法与 ${host}:${port} 完成 TLS 握手（${handshakeError}）；公共数据源只按域名索引，填 IP 时无法兜底`
@@ -190,8 +190,8 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
     }),
   ]);
   if (ct && ct.errors) errors.push(...ct.errors);
-  let ctData = ct && ct.cert ? ct : null;
-  let labsData = labs;
+  const ctData = ct && ct.cert ? ct : null;
+  const labsData = labs;
 
   const live = await liveP;
   const source =
@@ -228,7 +228,7 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
   }
 
   const result = ctData
-    ? buildFromCt(host, port, started, ctData)
+    ? buildFromCt(host, port, ctData)
     : {
         status: 'unknown',
         daysLeft: null,
@@ -239,8 +239,6 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
         authorized: null,
         authorizationError: null,
         chain: [],
-        leaf: null,
-        ctErrors: [],
       };
   if (labsData) {
     result.protocols = labsData.protocols;
@@ -256,7 +254,7 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
 }
 
 /** 公共数据源结果的统一组装：日期、剩余天数、结论状态 */
-function remoteResult({ host, port, started, meta, leaf, chain, protocols, source, grade, ctErrors }) {
+function remoteResult({ host, port, meta, chain, protocols, source, grade, ctErrors }) {
   const nb = meta.notBefore ? new Date(meta.notBefore) : null;
   const na = meta.notAfter ? new Date(meta.notAfter) : null;
   const { daysLeft, totalDays } = periodFields(nb ? nb.getTime() : null, na ? na.getTime() : null);
@@ -294,7 +292,7 @@ function remoteResult({ host, port, started, meta, leaf, chain, protocols, sourc
 }
 
 /** CT 日志数据 → 统一结果（协议/评级由调用方按 SSL Labs 结果覆盖） */
-function buildFromCt(host, port, started, ct) {
+function buildFromCt(host, port, ct) {
   const cert = ct.cert;
   const meta = {
     names: cert.names,
@@ -321,9 +319,7 @@ function buildFromCt(host, port, started, ct) {
   return remoteResult({
     host,
     port,
-    started,
     meta,
-    leaf,
     chain: [leaf],
     protocols: null,
     ctErrors: ct.errors,

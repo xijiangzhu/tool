@@ -23,12 +23,11 @@ let libsPromise = null;
 function libs() {
   if (!libsPromise) {
     libsPromise = (async () => {
-      const [http, https, net, dns, os, fs, path] = await Promise.all([
+      const [http, https, net, dns, fs, path] = await Promise.all([
         load('http'),
         load('https'),
         load('net'),
         load('dns'),
-        load('os'),
         load('fs'),
         load('path'),
       ]);
@@ -37,7 +36,6 @@ function libs() {
         https: https.default,
         net: net.default,
         dns: dns.default,
-        os: os.default,
         fs: fs.default,
         path: path.default,
       };
@@ -52,7 +50,6 @@ const now = () => Date.now();
 
 export default {
   name: 'node',
-  caps: { tcp: true, nics: true, httpTimings: true },
   limits: {
     maxPorts: 2000,
     portSuffix: '',
@@ -323,7 +320,8 @@ export default {
 
   /** 静态资源：读 public/ 目录，未命中回退 index.html */
   async serveStatic(request) {
-    const { fs, path } = await libs();    const url = new URL(request.url);
+    const { fs, path } = await libs();
+    const url = new URL(request.url);
     let pathname;
     try {
       pathname = decodeURIComponent(url.pathname);

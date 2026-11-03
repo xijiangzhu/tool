@@ -1361,17 +1361,12 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 
 /* 我的 IP 信息：公网出口主数值 */
 .myip-hero {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   overflow: hidden;
 }
 .myip-item { padding: 12px 14px; min-width: 0; }
-.myip-item + .myip-item { border-left: 1px solid var(--border); }
-/* 云端运行只有公网出口一块，单列铺满 */
-.myip-hero.single { grid-template-columns: 1fr; }
 .myip-label {
   display: flex;
   align-items: center;

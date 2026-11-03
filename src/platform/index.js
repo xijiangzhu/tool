@@ -13,5 +13,3 @@ export async function platform() {
   impl = isWorkers ? (await import('./workers.js')).default : (await import('./node.js')).default;
   return impl;
 }
-
-export const runtimeName = () => (isWorkers ? 'workers' : 'node');

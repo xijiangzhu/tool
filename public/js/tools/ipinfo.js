@@ -123,7 +123,7 @@ export default {
           </div>
         </div>
         <div class="card-body">
-          <div class="myip-hero single">
+          <div class="myip-hero">
             <div class="myip-item">
               <div class="myip-label">公网出口 IP<span class="badge ok" id="pubBadge">公网地址</span></div>
               <div class="myip-ip mono" id="pubIp">检测中…</div>
