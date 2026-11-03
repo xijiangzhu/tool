@@ -1,10 +1,8 @@
 /* TCP 端口扫描 */
-import { h, toast, esc, api, remember, setBusy, serverEnv } from '../ui.js';
+import { h, toast, esc, api, remember, setBusy } from '../ui.js';
 
-/* 端口数上限：云端环境单次 150 个，本地放宽到 2000 */
-const MAX_PORTS_LOCAL = 2000;
-const MAX_PORTS_EDGE = 150;
-const maxPorts = () => (serverEnv.runtime === 'workers' ? MAX_PORTS_EDGE : MAX_PORTS_LOCAL);
+/* 端口数上限：本地与云端一致（云端并发只有 6，大范围扫描会慢，但不限数量） */
+const MAX_PORTS = 2000;
 
 /* 开放状态的绿色对勾图标 */
 const OPEN_ICON =
@@ -86,26 +84,8 @@ export default {
     const metaEl = wrap.querySelector('#meta');
     const btn = wrap.querySelector('#run');
 
-    /* 按当前运行环境生成提示文案（云端上限 150，本地 2000） */
-    function refreshHint() {
-      const advice =
-        serverEnv.runtime === 'workers'
-          ? '超时指每个端口等待响应的最长时间，默认 2000 毫秒，跨公网或高丢包建议适当加大。'
-          : '超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。';
-      wrap.querySelector('#portHint').textContent =
-        `单次最多 ${maxPorts()} 个端口，支持逗号与区间混写。${advice}`;
-    }
-    refreshHint();
-    if (serverEnv.runtime == null) {
-      // 运行环境尚未探测完成：拿到结果后刷新一次
-      const t = setInterval(() => {
-        if (serverEnv.runtime) {
-          refreshHint();
-          clearInterval(t);
-        }
-      }, 300);
-      setTimeout(() => clearInterval(t), 5000);
-    }
+    wrap.querySelector('#portHint').textContent =
+      `单次最多 ${MAX_PORTS} 个端口，支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。`;
 
     /** 统计端口写法覆盖的端口数：'80,443' → 2，'1-1024' → 1024；写法非法返回 NaN */
     function portCount(s) {
@@ -130,12 +110,8 @@ export default {
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
       c.addEventListener('click', () => {
         const n = portCount(c.dataset.v);
-        const cap = maxPorts();
-        if (n > cap) {
-          return toast(
-            `该范围含 ${n} 个端口，超过${serverEnv.runtime === 'workers' ? '云端' : '单次'}上限 ${cap} 个，请手动缩小`,
-            'err'
-          );
+        if (n > MAX_PORTS) {
+          return toast(`该范围含 ${n} 个端口，超过单次上限 ${MAX_PORTS} 个，请手动缩小`, 'err');
         }
         portsEl.value = c.dataset.v;
       })
@@ -176,15 +152,9 @@ export default {
       if (!host) return toast('请输入域名或 IP', 'err');
       const portsStr = portsEl.value.trim();
       const count = portCount(portsStr);
-      const cap = maxPorts();
       if (Number.isNaN(count)) return toast('端口写法不合法，示例：22,80,443 或 1-1024', 'err');
-      if (count > cap) {
-        return toast(
-          serverEnv.runtime === 'workers'
-            ? `云端环境单次最多扫描 ${cap} 个端口（当前 ${count} 个），请缩小范围`
-            : `单次最多扫描 ${cap} 个端口（当前 ${count} 个）`,
-          'err'
-        );
+      if (count > MAX_PORTS) {
+        return toast(`单次最多扫描 ${MAX_PORTS} 个端口（当前 ${count} 个），请缩小范围`, 'err');
       }
       setBusy(btn, true, '扫描中');
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';

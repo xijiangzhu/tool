@@ -7,8 +7,8 @@ import { DOH_SERVERS, dohRecords, dohResolve, dohReverse, pickEndpoint } from '.
 export default {
   name: 'workers',
   limits: {
-    maxPorts: 150,
-    portSuffix: '（云端并发受限）',
+    maxPorts: 2000,
+    portSuffix: '',
     concurrency: 6,
     minTimeout: 300,
     dnsConcurrency: 4,
