@@ -2,12 +2,7 @@
 
 一套纯前端 + 轻量服务端的运维小工具集合，共 14 个工具，按「网络工具 / 时间与调度 / 格式化与预览 / 编码转换」分组。
 
-前端是原生 ES Module，无构建步骤；后端有两套等价实现：
-
-| 运行方式 | 入口 | 说明 |
-| --- | --- | --- |
-| 本地 Node | `server.js` | 功能最完整，可读本机网卡、可扫内网端口、可做真实 TLS 握手 |
-| Cloudflare Workers | `worker/index.js` | 一个 Worker 同时托管静态资源和 `/api/*` 接口，零服务器 |
+**只有一套代码**：服务端是一个 Web 标准处理器（`Request → Response`），同一个入口文件既能被 `node` 直接执行，也能作为 Cloudflare Worker 运行。Node 与 Workers 的差别（DNS、TLS、TCP、网卡、静态资源）全部收在 `src/platform/` 下的两个文件里，接口逻辑只有一份。
 
 ## 工具清单
 
@@ -16,21 +11,18 @@
 **格式化与预览**：JSON 格式化、Markdown 预览器、文件差异对比
 **编码转换**：Base64 编解码、URL 编解码、YAML / JSON 转换
 
-纯前端工具（Cron、时间戳、JSON、Markdown、差异对比、Base64、URL、YAML）在两种运行方式下完全一致。
+其中 8 个纯前端工具（Cron、时间戳、JSON、Markdown、差异对比、Base64、URL、YAML）不经过服务端。
 
-## 本地运行（Node）
-
-```bash
-npm install
-npm start          # 默认 http://localhost:3000
-```
-
-## 本地运行（Workers）
+## 运行
 
 ```bash
 npm install
-npm run dev        # wrangler dev，默认 http://127.0.0.1:8787
+
+npm start          # Node：       http://localhost:3000
+npm run dev        # Workers 本地：http://127.0.0.1:8787
 ```
+
+两者跑的是**同一个 `src/index.js`**，端口可用 `PORT=8080 npm start` 修改。
 
 ## 部署到 Cloudflare
 
@@ -39,47 +31,65 @@ npx wrangler login     # 首次需要授权
 npm run deploy         # 等价于 wrangler deploy
 ```
 
-部署后在 `*.workers.dev` 域名可直接访问；也可以在 Cloudflare 控制台把仓库接到 **Workers Builds**，以后 push 到 main 自动发布。
+部署后在 `*.workers.dev` 可直接访问；也可以在控制台把仓库接到 **Workers Builds**，以后 push 到 main 自动发布。
 
-`wrangler.jsonc` 已配置静态资源绑定：
+`wrangler.jsonc`：
 
 ```jsonc
 {
   "name": "ops-toolbox",
-  "main": "worker/index.js",
+  "main": "src/index.js",
   "assets": { "directory": "./public", "binding": "ASSETS" }
 }
 ```
 
-即：命中 `public/` 里的文件直接由边缘节点返回，未命中的 `/api/*` 才进入 Worker，前端代码两边共用，不需要改接口地址。
-
-## 两种模式的差异
-
-| 能力 | Node 本地 | Cloudflare Workers |
-| --- | --- | --- |
-| DNS 查询 | 系统解析器 / 任意 DNS 服务器 | 走 DoH（Cloudflare / 腾讯 / Google 自动择优），自定义服务器仅支持已知公共 DNS |
-| SSL 证书检测 | 真实 TLS 握手：协议、套件、完整证书链、链校验 | 公共 CT 日志取证书元数据 + 实时可达性探测；无协议、套件、链校验 |
-| 端口扫描 | 2000 端口、80 并发、支持内网 | 150 端口、6 并发，平台禁止连接内网与本机地址 |
-| IP 地址查询 | 归属地 + 本机网卡 + 反向解析 | 归属地 + 反向解析；**读不到本机网卡**，改显示运行环境与边缘节点 |
-| HTTP 调试 | 可自定义 Host 头、看原始响应头 | `fetch` 代理，Host 等头由平台接管，看不到重复响应头 |
+命中 `public/` 里的文件由边缘节点直接返回，`/api/*` 进入 Worker，前端不需要改接口地址。
 
 ## 目录结构
 
 ```
-server.js            Node 版服务端（静态托管 + 6 个接口）
-worker/              Workers 版服务端（与 Node 版接口结构一致）
-  index.js           路由 + 静态资源
-  api/               dns / http / ssl / portscan / ipinfo
-  lib/               DoH 封装、IP 与端口工具
-public/              前端（index.html / js / css / vendor）
+src/
+  index.js           唯一入口：路由 + 静态资源 + Node 自举（导出 { fetch } 供 Workers 用）
+  api/               六个接口，两种运行时共用
+    dns.js           DNS 查询（组合/并发/回退）
+    http.js          HTTP 调试（重定向、编码、结果整形）
+    ssl.js           SSL 检测（握手模式 / CT 模式）
+    portscan.js      端口扫描（并发模型与结果）
+    ipinfo.js        IP 归属地 + 本机信息
+  lib/
+    util.js          IP/端口/地址分类/响应封装
+    doh.js           DoH 客户端（Workers 的解析实现）
+    geo.js           归属地三源兜底
+    ct.js            证书透明日志查询（Workers 的证书来源）
+  platform/
+    index.js         运行时探测 + 按需加载
+    node.js          node:dns / node:tls / node:net / node:os / 文件系统
+    workers.js       DoH / cloudflare:sockets / request.cf / ASSETS
+public/              前端（index.html / js / css / vendor），无构建步骤
 wrangler.jsonc       Workers 配置
 ```
 
+平台接口很薄，只有这几项：`dnsOne`、`lookupIps`、`reverseLookup`、`httpSend`、`tcpProbe`、`inspectTls`、`localInfo`、`serveStatic`。其余全部是共享逻辑——加一个新工具只需写 `src/api/xxx.js` 并在 `index.js` 的 `ROUTES` 里登记一行。
+
+## 两种运行时的能力差异
+
+| 能力 | Node 本地 | Cloudflare Workers |
+| --- | --- | --- |
+| DNS 查询 | 系统解析器，支持任意 DNS 服务器，CAA / PTR 等记录完整 | 走 DoH（Cloudflare / 腾讯 / Google 自动择优 + 回退），自定义服务器仅限已知公共 DNS |
+| SSL 证书检测 | 真实 TLS 握手：协议、套件、完整证书链、链校验、逐版本探测 | 公共 CT 日志取证书元数据 + 实时可达探测；协议、套件、链校验显示「未知」并说明原因 |
+| 端口扫描 | 2000 端口、80 并发，可扫内网 | 150 端口、6 并发，平台禁止连接内网与本机地址 |
+| IP 地址查询 | 归属地 + 本机网卡 + 反向解析 | 归属地 + 反向解析；读不到本机网卡，改显示运行环境与边缘节点 |
+| HTTP 调试 | 分段耗时（DNS/TCP/TLS）、HTTP 版本、可测自签证书 | `fetch` 代理，无分段耗时与版本号，其余一致 |
+| 静态资源 | 直接读 `public/` | `ASSETS` 绑定 |
+
+这些差异由 `src/platform/*` 上报的 `caps` 与 `limits` 决定，前端据返回字段自动降级展示（例如 IP 页在云端只显示单列）。
+
 ## 依赖的第三方服务
 
-Workers 版不依赖任何密钥，但用到了这些公共服务：DoH 解析（Cloudflare / 腾讯 / Google）、归属地（ipwho.is、ip-api.com、ipinfo.io）、证书日志（Cert Spotter、crt.sh）。它们都有速率限制，个人使用足够；如果要做成公开服务，建议换成自建或付费接口。
+Workers 版不需要任何密钥，但用到这些公共服务：DoH 解析（Cloudflare / 腾讯 / Google）、归属地（ipwho.is、ip-api.com、ipinfo.io）、证书日志（Cert Spotter、crt.sh）。都有速率限制，个人使用足够；要做公开服务建议换自建或付费接口。
 
 ## 说明
 
 - 「端口扫描」仅用于检测自己有权限的目标。
-- 所有查询结果不落库、不写日志，Workers 版无任何持久化存储。
+- 所有查询结果不落库、不写日志，两种运行时都无持久化存储。
+- 需要 Node 20+（`import.meta.main`、全局 `Request` / `Response`）。
