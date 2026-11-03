@@ -403,6 +403,81 @@ export default {
     });
   },
 
+  /** 裸 TCP 连接：给自解析 TLS 握手用（rawtls.js），接口与 Workers 保持一致 */
+  async tcpOpen(host, port, timeoutMs) {
+    const { net } = await libs();
+    const sock = new net.Socket();
+    sock.setTimeout(timeoutMs);
+    await new Promise((resolve, reject) => {
+      const onErr = (e) => reject(e);
+      sock.once('connect', () => {
+        sock.removeListener('error', onErr);
+        resolve();
+      });
+      sock.once('timeout', () => {
+        sock.removeListener('error', onErr);
+        reject(new Error('连接超时'));
+      });
+      sock.once('error', onErr);
+      sock.connect(port, host);
+    });
+    sock.setTimeout(0);
+
+    let chunks = [];
+    let waiters = [];
+    let ended = false;
+    const flush = () => {
+      while (waiters.length) waiters.shift()(null);
+    };
+    sock.on('data', (d) => {
+      const b = new Uint8Array(d);
+      const w = waiters.shift();
+      if (w) w(b);
+      else chunks.push(b);
+    });
+    sock.on('end', () => {
+      ended = true;
+      flush();
+    });
+    sock.on('close', () => {
+      ended = true;
+      flush();
+    });
+    sock.on('error', () => {
+      ended = true;
+      flush();
+    });
+
+    return {
+      write(bytes) {
+        return new Promise((resolve, reject) => {
+          sock.write(bytes, (err) => (err ? reject(err) : resolve()));
+        });
+      },
+      read(ms) {
+        return new Promise((resolve) => {
+          if (chunks.length) return resolve(chunks.shift());
+          if (ended) return resolve(null);
+          const timer = setTimeout(() => {
+            const i = waiters.findIndex((w) => w === waiter);
+            if (i >= 0) waiters.splice(i, 1);
+            resolve(null);
+          }, ms);
+          const waiter = (d) => {
+            clearTimeout(timer);
+            resolve(d);
+          };
+          waiters.push(waiter);
+        });
+      },
+      close() {
+        try {
+          sock.destroy();
+        } catch (_) {}
+      },
+    };
+  },
+
   /** 真实 TLS 握手：拿协议、套件、证书链、主机名匹配 */
   async inspectTls(host, port, { servername, timeoutMs, probe }) {
     const { crypto } = await libs();

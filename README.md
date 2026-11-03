@@ -69,14 +69,14 @@ public/              前端（index.html / js / css / vendor），无构建步�
 wrangler.jsonc       Workers 配置
 ```
 
-平台接口很薄，只有这几项：`dnsOne`、`lookupIps`、`reverseLookup`、`httpSend`、`tcpProbe`、`inspectTls`、`localInfo`、`serveStatic`。其余全部是共享逻辑——加一个新工具只需写 `src/api/xxx.js` 并在 `index.js` 的 `ROUTES` 里登记一行。
+平台接口很薄，只有这几项：`dnsOne`、`lookupIps`、`reverseLookup`、`httpSend`、`tcpProbe`、`tcpOpen`、`inspectTls`、`serveStatic`。其余全部是共享逻辑——加一个新工具只需写 `src/api/xxx.js` 并在 `index.js` 的 `ROUTES` 里登记一行。
 
 ## 两种运行时的能力差异
 
 | 能力 | Node 本地 | Cloudflare Workers |
 | --- | --- | --- |
 | DNS 查询 | 系统解析器，支持任意 DNS 服务器，CAA / PTR 等记录完整 | 走 DoH（Cloudflare / 腾讯 / Google 自动择优 + 回退），自定义服务器仅限已知公共 DNS |
-| SSL 证书检测 | 真实 TLS 握手：协议、套件、完整证书链、链校验、逐版本探测 | 公共数据源：CT 日志出证书字段（有效期 / 颁发者 / SAN / 指纹），SSL Labs 出协议支持与评级；链校验无法判断 |
+| SSL 证书检测 | 真实 TLS 握手（`node:tls`）：协议、套件、完整证书链、链校验、逐版本探测 | 自己发 ClientHello 解握手（`src/lib/rawtls.js`）：同样拿到真实证书链、协议、套件；链校验需系统信任库，标记为未校验；联动 SSL Labs 可补评级 |
 | 端口扫描 | 2000 端口、80 并发，可扫内网 | 150 端口、6 并发，平台禁止连接内网与本机地址 |
 | IP 地址查询 | 归属地 + 反向解析，两端一致 | 同左（公网出口优先显示 IPv4） |
 | HTTP 调试 | 分段耗时（DNS/TCP/TLS）、HTTP 版本、可测自签证书 | `fetch` 代理，无分段耗时与版本号，其余一致 |

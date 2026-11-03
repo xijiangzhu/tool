@@ -6,6 +6,10 @@ const MAX_PORTS_LOCAL = 2000;
 const MAX_PORTS_EDGE = 150;
 const maxPorts = () => (serverEnv.runtime === 'workers' ? MAX_PORTS_EDGE : MAX_PORTS_LOCAL);
 
+/* 开放状态的绿色对勾图标 */
+const OPEN_ICON =
+  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
 const COMMON =
   '21,22,23,25,53,80,110,111,123,135,139,143,161,389,443,445,465,514,587,636,873,993,995,1080,1433,1521,1723,2049,2181,2375,3000,3306,3389,5000,5432,5601,5672,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9200,9300,11211,27017';
 
@@ -142,7 +146,7 @@ export default {
       const stats = `
         <div class="grid grid-3">
           <div class="stat"><div class="stat-label">扫描端口数</div><div class="stat-value mono">${d.scanned}</div></div>
-          <div class="stat"><div class="stat-label">开放端口</div><div class="stat-value mono" style="color:${d.open.length ? 'var(--warn)' : 'var(--ok)'}">${d.open.length}</div></div>
+          <div class="stat"><div class="stat-label">开放端口</div><div class="stat-value mono" style="color:${d.open.length ? 'var(--ok)' : 'var(--muted)'}">${d.open.length}</div></div>
           <div class="stat"><div class="stat-label">耗时</div><div class="stat-value mono">${(d.elapsed / 1000).toFixed(1)} s</div></div>
         </div>`;
 
@@ -155,7 +159,7 @@ export default {
                   <td class="mono"><b>${p.port}</b></td>
                   <td>${esc(p.service || '未知服务')}</td>
                   <td class="mono">${p.ms} ms</td>
-                  <td><span class="badge warn">open</span></td>
+                  <td><span class="badge ok" title="端口可连接">${OPEN_ICON}开放</span></td>
                 </tr>`
               )
               .join('')}

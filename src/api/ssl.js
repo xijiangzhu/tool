@@ -1,6 +1,9 @@
-/* SSL 证书检测：平台能发起真实 TLS 握手时直接读证书；
-   云端拿不到对端证书，用「CT 日志（证书字段）+ SSL Labs（协议支持与评级）+ 实时可达探测」。 */
+/* SSL 证书检测：
+   - 本地有 TLS 能力：直接握手读证书（协议、套件、链、信任校验）
+   - 云端：自己发 ClientHello 解一次握手拿真实证书（rawtls），失败再退到
+     「CT 日志（证书字段）+ SSL Labs（协议支持与评级）+ 实时可达探测」 */
 import { ctLookup, formatFingerprint } from '../lib/ct.js';
+import { rawTlsInspect } from '../lib/rawtls.js';
 import { ssllabsInfo } from '../lib/ssllabs.js';
 import { clamp, isIP } from '../lib/util.js';
 import { platform } from '../platform/index.js';
@@ -94,16 +97,49 @@ export default async function sslCheck(input) {
     return fromHandshake({ host, port, resolved, info, started });
   }
 
-  if (isIP(host)) {
-    throw new Error('云端证书信息来自公共数据源（按域名索引），请填写域名而不是 IP');
-  }
-
   const key = `${host}:${port}`;
   const cached = input.refresh ? null : cacheGet(key);
   if (cached) return { ...cached, resolved, elapsed: Date.now() - started, cached: true };
 
   // 硬截止 20 秒：Workers 单个请求有固定时长上限，不允许外部源把请求拖死
   const deadline = started + 20000;
+
+  // ① 自己发一次 ClientHello：云端只要能连上 443，就能拿到真实证书，不依赖任何第三方
+  let handshake = null;
+  let handshakeError = null;
+  try {
+    handshake = await rawTlsInspect(host, port, host, Math.min(timeoutMs, 9000));
+  } catch (e) {
+    handshakeError = (e && e.message) || '握手失败';
+  }
+
+  if (handshake && handshake.chain && handshake.chain.length) {
+    const result = fromHandshake({ host, port, resolved, info: handshake, started });
+    result.source = 'TLS 握手';
+    result.dnsError = dnsError;
+    result.errors = [];
+    // 逐版本协议支持与站点评级只有 SSL Labs 能给，仅在深度检测时补一次（走缓存，通常秒回）
+    if (input.deep) {
+      const labs = await ssllabsInfo(host, { timeoutMs: Math.min(6000, Math.max(2500, deadline - Date.now())) }).catch(
+        () => null
+      );
+      if (labs) {
+        result.protocols = labs.protocols || result.protocols;
+        result.grade = labs.grade || null;
+        result.source = 'TLS 握手 + SSL Labs';
+      }
+    }
+    cacheSet(key, result);
+    return result;
+  }
+
+  // ② 握手拿不到（端口不通 / 非 TLS 服务 / 被拦截）：退回公共数据源
+  if (isIP(host)) {
+    throw new Error(
+      `无法与 ${host}:${port} 完成 TLS 握手（${handshakeError}）；公共数据源只按域名索引，填 IP 时无法兜底`
+    );
+  }
+
   const result = await fromRemoteSources({
     host,
     port,
@@ -112,6 +148,7 @@ export default async function sslCheck(input) {
     deadline,
     deep: !!input.deep,
     dnsError,
+    handshakeError,
   });
   if (result.status !== 'unknown') cacheSet(key, result);
   return result;
@@ -156,10 +193,11 @@ function fromHandshake({ host, port, resolved, info, started }) {
 }
 
 /** 云端：CT 日志出证书字段 + SSL Labs 出协议支持与评级 + 实时可达探测 */
-async function fromRemoteSources({ host, port, resolved, started, deadline, deep, dnsError }) {
+async function fromRemoteSources({ host, port, resolved, started, deadline, deep, dnsError, handshakeError }) {
   const remain = () => Math.max(0, deadline - Date.now());
   const liveP = liveProbe(host, port, Math.min(9000, Math.max(2000, remain())));
   const errors = [];
+  if (handshakeError) errors.push(`TLS 握手：${handshakeError}`);
 
   const [labs, ct] = await Promise.all([
     ssllabsInfo(host, { timeoutMs: 6000 }).catch((e) => {
@@ -215,6 +253,7 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, deep
       mode: 'remote',
       source: null,
       ct: { source: null, total: 0, errors },
+      errors,
       live,
       dnsError,
       elapsed: Date.now() - started,

@@ -63,14 +63,22 @@ async function detectIpv4(budget = 4500) {
   }
 }
 
-/** 出口是 IPv6 时补一次 IPv4 查询：拿到就用 IPv4 作为主显示，IPv6 收进副行 */
-async function preferIpv4(d) {
-  if (!d || d.version !== 'IPv6' || !d.ip) return d;
-  const v4 = await detectIpv4();
-  if (!v4 || v4 === d.ip) return d;
-  const r = await api('/api/net/ipinfo', { ip: v4 });
-  if (!r || !r.ok || !r.data || r.data.version !== 'IPv4') return d;
-  return { ...r.data, altV6: d.ip };
+/** 本机出口：先由浏览器自查 IPv4，服务端查询并行发起，全部就绪后一次性渲染，
+ *  避免先显示 IPv6 再跳成 IPv4 的闪烁。 */
+async function myIpInfo() {
+  const mineP = api('/api/net/ipinfo', { ip: '' });
+  const v4 = await detectIpv4(3000);
+  const mine = await mineP;
+  if (!mine.ok) throw new Error(mine.error);
+  let d = mine.data || {};
+  const serverV6 = d.version === 'IPv6' ? d.ip : null;
+  if (v4 && (!d.ip || d.version !== 'IPv4')) {
+    const r4 = await api('/api/net/ipinfo', { ip: v4 });
+    d = r4.ok && r4.data
+      ? { ...r4.data, altV6: serverV6 }
+      : { ...d, ip: v4, version: 'IPv4', altV6: serverV6 };
+  }
+  return d;
 }
 
 export default {
@@ -161,17 +169,7 @@ export default {
       reloadBtn.disabled = true;
       reloadBtn.classList.add('is-busy');
       try {
-        const r = await api('/api/net/ipinfo', { ip: '' });
-        if (!r.ok) throw new Error(r.error);
-        const d = r.data;
-        renderPublic(d);
-        // 双栈网络下服务端先看到 IPv6：浏览器再自查一次 IPv4 出口并升级显示
-        if (d && d.version === 'IPv6') {
-          pubMetaEl.textContent = 'IPv6 出口，正在查找同一网络的 IPv4…';
-          const better = await preferIpv4(d);
-          if (better !== d) renderPublic(better);
-          else if (pubMetaEl.textContent.startsWith('IPv6 出口')) renderPublic(d);
-        }
+        renderPublic(await myIpInfo());
       } catch (e) {
         pubIpEl.textContent = '—';
         pubBadgeEl.className = 'badge warn';
@@ -247,11 +245,16 @@ export default {
       setBusy(goBtn, true, '查询中');
       outEl.innerHTML = '<div class="empty">正在查询…</div>';
       try {
-        const r = await api('/api/net/ipinfo', { ip: qEl.value.trim() });
-        if (!r.ok) throw new Error(r.error);
-        let d = r.data;
-        // 「本机出口」留空查询同样优先 IPv4
-        if (!qEl.value.trim()) d = await preferIpv4(d);
+        const q = qEl.value.trim();
+        let d;
+        if (q) {
+          const r = await api('/api/net/ipinfo', { ip: q });
+          if (!r.ok) throw new Error(r.error);
+          d = r.data;
+        } else {
+          // 「本机出口」留空查询同样优先 IPv4
+          d = await myIpInfo();
+        }
         renderIp(d);
       } catch (e) {
         outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;

@@ -126,6 +126,52 @@ export default {
     });
   },
 
+  /** 裸 TCP 连接：云端没有 TLS 对端证书 API，自解析握手（rawtls.js）要用 */
+  async tcpOpen(host, port, timeoutMs) {
+    const socket = connect({ hostname: host, port });
+    let openedErr = null;
+    const opened = socket.opened.catch((e) => {
+      openedErr = e;
+    });
+    await Promise.race([
+      opened,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), timeoutMs)),
+    ]);
+    if (openedErr) throw openedErr;
+
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      try {
+        socket.close();
+      } catch (_) {}
+    };
+
+    return {
+      async write(bytes) {
+        await writer.write(bytes);
+      },
+      async read(ms) {
+        if (closed) return null;
+        const pending = reader.read().catch(() => ({ done: true, value: undefined }));
+        const res = await Promise.race([
+          pending,
+          new Promise((r) => setTimeout(() => r({ timeout: true }), ms)),
+        ]);
+        if (res.timeout) {
+          close();
+          return null;
+        }
+        if (res.done || !res.value) return null;
+        return res.value instanceof Uint8Array ? res.value : new Uint8Array(res.value);
+      },
+      close,
+    };
+  },
+
   /** 静态资源交给 ASSETS 绑定 */
   async serveStatic(request, env) {
     if (!env || !env.ASSETS) return null;
