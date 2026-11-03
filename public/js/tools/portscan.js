@@ -159,7 +159,7 @@ export default {
                   <td class="mono"><b>${p.port}</b></td>
                   <td>${esc(p.service || '未知服务')}</td>
                   <td class="mono">${p.ms} ms</td>
-                  <td><span class="badge ok" title="端口可连接">${OPEN_ICON}开放</span></td>
+                  <td><span class="badge ok" title="端口可连接">${OPEN_ICON}open</span></td>
                 </tr>`
               )
               .join('')}

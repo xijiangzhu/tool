@@ -1,6 +1,6 @@
-/* SSL Labs API（api.ssllabs.com）：云端拿不到 TLS 对端证书，这里的
-   服务端扫描用于补全「协议支持情况」与站点评级（证书字段仍由 CT 日志提供）。
-   先查缓存（最近扫描过的域名秒回），未命中再发起新扫描并轮询。 */
+/* SSL Labs API（api.ssllabs.com）：证书字段拿不到时的兜底数据源之一，
+   用于补全「协议支持情况」与站点评级。只查缓存（最近 7 天内被 SSL Labs
+   扫描过的域名秒回），不发起耗时十几秒的新扫描，避免拖垮单次请求。 */
 
 const API = 'https://api.ssllabs.com/api/v3';
 
@@ -22,28 +22,6 @@ async function cached(host, maxAge = 168, timeoutMs = 8000) {
     timeoutMs
   );
   return extract(r);
-}
-
-/** 发起新扫描并轮询到就绪或超时（预算用完返回 null，结果会被 SSL Labs 缓存，下次查询秒回） */
-async function scan(host, budgetMs) {
-  await apiGet(
-    `host=${encodeURIComponent(host)}&all=done&startNew=on&ignoreMismatch=on`,
-    Math.max(4000, Math.min(10000, budgetMs))
-  );
-  const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 4000));
-    let r;
-    try {
-      r = await apiGet(`host=${encodeURIComponent(host)}&all=done`);
-    } catch (_) {
-      continue; // 单次轮询失败不中断
-    }
-    if (r.status === 'ERROR') throw new Error(`SSL Labs 扫描失败：${r.statusMessage || '未知原因'}`);
-    const out = extract(r);
-    if (out) return out;
-  }
-  return null;
 }
 
 /** 从 analyze 响应取协议支持与评级；尚无可用端点时返回 null */
@@ -72,24 +50,13 @@ function extract(r) {
 }
 
 /**
- * 取协议支持与评级：
- *   1. 先查缓存（最近 7 天内被扫描过的域名秒回）
- *   2. scanBudgetMs > 0 且缓存未命中 → 发起新扫描并轮询
+ * 取协议支持与评级（仅缓存命中时返回）。
  * 返回 null 表示没有拿到，由调用方决定是否降级。
  */
-export async function ssllabsInfo(host, { scanBudgetMs = 0, timeoutMs = 8000 } = {}) {
+export async function ssllabsInfo(host, { timeoutMs = 8000 } = {}) {
   try {
-    const hit = await cached(host, 168, timeoutMs);
-    if (hit) return hit;
+    return await cached(host, 168, timeoutMs);
   } catch (_) {
-    /* 缓存查询失败继续 */
+    return null;
   }
-  if (scanBudgetMs > 0) {
-    try {
-      return await scan(host, scanBudgetMs);
-    } catch (_) {
-      return null;
-    }
-  }
-  return null;
 }

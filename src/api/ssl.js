@@ -71,7 +71,6 @@ export default async function sslCheck(input) {
   const p = await platform();
   const { host, port } = normalizeTarget(input);
   const timeoutMs = clamp(Number(input.timeout) || 12000, 1000, 30000);
-  const probe = input.probe !== false;
 
   // 解析 IP 仅用于展示与定位，解析失败不阻断：证书信息来自公共数据源，不依赖本地解析
   let resolved = [host];
@@ -88,7 +87,7 @@ export default async function sslCheck(input) {
   if (p.caps.tls) {
     let info;
     try {
-      info = await p.inspectTls(host, port, { servername: host, timeoutMs, probe });
+      info = await p.inspectTls(host, port, { servername: host, timeoutMs });
     } catch (e) {
       throw new Error(
         `TLS 握手失败：${e.code ? `${e.code} - ` : ''}${e.message}（请确认 ${host}:${port} 提供 TLS 服务）`
@@ -118,17 +117,6 @@ export default async function sslCheck(input) {
     result.source = 'TLS 握手';
     result.dnsError = dnsError;
     result.errors = [];
-    // 逐版本协议支持与站点评级只有 SSL Labs 能给，仅在深度检测时补一次（走缓存，通常秒回）
-    if (input.deep) {
-      const labs = await ssllabsInfo(host, { timeoutMs: Math.min(6000, Math.max(2500, deadline - Date.now())) }).catch(
-        () => null
-      );
-      if (labs) {
-        result.protocols = labs.protocols || result.protocols;
-        result.grade = labs.grade || null;
-        result.source = 'TLS 握手 + SSL Labs';
-      }
-    }
     cacheSet(key, result);
     return result;
   }
@@ -146,7 +134,6 @@ export default async function sslCheck(input) {
     resolved,
     started,
     deadline,
-    deep: !!input.deep,
     dnsError,
     handshakeError,
   });
@@ -193,7 +180,7 @@ function fromHandshake({ host, port, resolved, info, started }) {
 }
 
 /** 云端：CT 日志出证书字段 + SSL Labs 出协议支持与评级 + 实时可达探测 */
-async function fromRemoteSources({ host, port, resolved, started, deadline, deep, dnsError, handshakeError }) {
+async function fromRemoteSources({ host, port, resolved, started, deadline, dnsError, handshakeError }) {
   const remain = () => Math.max(0, deadline - Date.now());
   const liveP = liveProbe(host, port, Math.min(9000, Math.max(2000, remain())));
   const errors = [];
@@ -212,19 +199,6 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, deep
   if (ct && ct.errors) errors.push(...ct.errors);
   let ctData = ct && ct.cert ? ct : null;
   let labsData = labs;
-
-  // 深度检测：缺证书字段或缺协议支持时，等一次 SSL Labs 完整扫描（必须留在硬截止时间内）
-  if (deep && (!ctData || !labsData)) {
-    const budget = Math.min(12000, remain() - 2500);
-    if (budget >= 4000) {
-      const [labs2, ct2] = await Promise.all([
-        labsData ? Promise.resolve(labsData) : ssllabsInfo(host, { scanBudgetMs: budget }).catch(() => null),
-        ctData ? Promise.resolve(ct) : ctLookup(host).catch(() => null),
-      ]);
-      labsData = labsData || labs2;
-      ctData = ctData || (ct2 && ct2.cert ? ct2 : null);
-    }
-  }
 
   const live = await liveP;
   const source =

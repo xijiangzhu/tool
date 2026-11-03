@@ -479,7 +479,7 @@ export default {
   },
 
   /** 真实 TLS 握手：拿协议、套件、证书链、主机名匹配 */
-  async inspectTls(host, port, { servername, timeoutMs, probe }) {
+  async inspectTls(host, port, { servername, timeoutMs }) {
     const { crypto } = await libs();
     const conn = await tlsConnect(host, port, servername, timeoutMs);
 
@@ -511,7 +511,7 @@ export default {
       authorizationError: conn.authorizationError,
       chain,
       hostMatch,
-      protocols: probe ? await probeProtocols(host, port, servername, timeoutMs) : null,
+      protocols: await probeProtocols(host, port, servername, timeoutMs),
     };
   },
 

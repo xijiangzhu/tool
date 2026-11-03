@@ -1,5 +1,5 @@
 /* SSL 证书检测 */
-import { h, api, copy, toast, esc, remember, setBusy, fmtDateTime, serverEnv } from '../ui.js';
+import { h, api, copy, toast, esc, remember, setBusy, fmtDateTime } from '../ui.js';
 
 const STATUS_MAP = {
   valid: { cls: 'ok', text: '证书有效' },
@@ -46,8 +46,6 @@ export default {
           </div>
           <div class="row mt10">
             <span class="note">支持直接粘贴 https:// 开头的完整地址</span>
-            <span class="spacer"></span>
-            <label class="check" title="本地环境：逐版本 TLS 握手探测；云端环境：等待一次完整扫描补全协议支持（约 10~30 秒，结果会被缓存）"><input type="checkbox" id="probe" checked /> 深度检测</label>
           </div>
         </div>
       </section>
@@ -57,21 +55,7 @@ export default {
 
     const resultEl = wrap.querySelector('#result');
     const goBtn = wrap.querySelector('#go');
-    const probeBox = wrap.querySelector('#probe');
     remember(wrap.querySelector('#host'), 'ssl.host');
-
-    /* 云端做完整扫描要等十几秒，默认不勾；本地只是逐版本握手，默认勾上。
-       运行环境可能还没探测完，等 /api/health 返回后再决定一次 */
-    if (serverEnv.runtime) probeBox.checked = serverEnv.runtime !== 'workers';
-    else {
-      const t = setInterval(() => {
-        if (serverEnv.runtime) {
-          probeBox.checked = serverEnv.runtime !== 'workers';
-          clearInterval(t);
-        }
-      }, 200);
-      setTimeout(() => clearInterval(t), 4000);
-    }
 
     function normalizeTarget(raw) {
       let s = String(raw || '').trim();
@@ -97,14 +81,13 @@ export default {
       const host = target.host;
       const port = target.port || Number(wrap.querySelector('#port').value || 443);
       if (target.port) wrap.querySelector('#port').value = target.port;
-      const probe = wrap.querySelector('#probe').checked;
 
       setBusy(goBtn, true, '检测中');
       resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">正在检测 ' + esc(host) + ':' + port + ' 的证书…</div></div></div>';
 
       let res;
       try {
-        res = await api('/api/ssl', { host, port, probe, deep: probe });
+        res = await api('/api/ssl', { host, port });
       } catch (e) {
         setBusy(goBtn, false);
         resultEl.innerHTML = `<div class="card"><div class="card-body"><div class="alert err">请求失败：${esc(e.message)}</div></div></div>`;
