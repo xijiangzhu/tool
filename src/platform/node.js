@@ -1,7 +1,7 @@
-/* Node 平台实现：原生 DNS / TLS / TCP / 网卡 / 静态文件。
+/* Node 平台实现：原生 DNS / TLS / TCP / 静态文件。
    只有 Node 能用到的内置模块都在这里按需动态加载，Workers 打包时不会被解析到。 */
 
-import { friendlyDnsError, ipScope } from '../lib/util.js';
+import { friendlyDnsError } from '../lib/util.js';
 
 const load = (name) => import('node:' + name);
 
@@ -440,40 +440,11 @@ export default {
     };
   },
 
-  /** 本机网络信息：主机名 + 各网卡地址（按 IPv4 → 非内部 → 公网排序） */
-  async localInfo() {
-    const { os } = await libs();
-    const list = [];
-    for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
-      for (const a of addrs || []) {
-        const family = a.family === 6 || a.family === 'IPv6' ? 'IPv6' : 'IPv4';
-        list.push({
-          name,
-          address: a.address,
-          family,
-          internal: !!a.internal,
-          mac: a.mac && a.mac !== '00:00:00:00:00:00' ? a.mac : null,
-          cidr: a.cidr || null,
-          scope: ipScope(a.address),
-        });
-      }
-    }
-    const rank = (x) => (x.internal ? 4 : 0) + (x.family === 'IPv4' ? 0 : 1) + (x.scope.kind === 'public' ? 0 : 1);
-    list.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-
-    return {
-      hostname: os.hostname(),
-      platform: process.platform,
-      release: os.release(),
-      addressCount: list.filter((x) => !x.internal).length,
-      interfaces: list,
-    };
-  },
+  /** 静态资源：读 public/ 目录，未命中回退 index.html */
 
   /** 静态资源：读 public/ 目录，未命中回退 index.html */
   async serveStatic(request) {
-    const { fs, path } = await libs();
-    const url = new URL(request.url);
+    const { fs, path } = await libs();    const url = new URL(request.url);
     let pathname;
     try {
       pathname = decodeURIComponent(url.pathname);

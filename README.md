@@ -2,7 +2,7 @@
 
 一套纯前端 + 轻量服务端的运维小工具集合，共 14 个工具，按「网络工具 / 时间与调度 / 格式化与预览 / 编码转换」分组。
 
-**只有一套代码**：服务端是一个 Web 标准处理器（`Request → Response`），同一个入口文件既能被 `node` 直接执行，也能作为 Cloudflare Worker 运行。Node 与 Workers 的差别（DNS、TLS、TCP、网卡、静态资源）全部收在 `src/platform/` 下的两个文件里，接口逻辑只有一份。
+**只有一套代码**：服务端是一个 Web 标准处理器（`Request → Response`），同一个入口文件既能被 `node` 直接执行，也能作为 Cloudflare Worker 运行。Node 与 Workers 的差别（DNS、TLS、TCP、静态资源）全部收在 `src/platform/` 下的两个文件里，接口逻辑只有一份。
 
 ## 工具清单
 
@@ -76,17 +76,17 @@ wrangler.jsonc       Workers 配置
 | 能力 | Node 本地 | Cloudflare Workers |
 | --- | --- | --- |
 | DNS 查询 | 系统解析器，支持任意 DNS 服务器，CAA / PTR 等记录完整 | 走 DoH（Cloudflare / 腾讯 / Google 自动择优 + 回退），自定义服务器仅限已知公共 DNS |
-| SSL 证书检测 | 真实 TLS 握手：协议、套件、完整证书链、链校验、逐版本探测 | 公共 CT 日志取证书元数据 + 实时可达探测；协议、套件、链校验显示「未知」并说明原因 |
+| SSL 证书检测 | 真实 TLS 握手：协议、套件、完整证书链、链校验、逐版本探测 | 公共数据源：CT 日志出证书字段（有效期 / 颁发者 / SAN / 指纹），SSL Labs 出协议支持与评级；链校验无法判断 |
 | 端口扫描 | 2000 端口、80 并发，可扫内网 | 150 端口、6 并发，平台禁止连接内网与本机地址 |
-| IP 地址查询 | 归属地 + 本机网卡 + 反向解析 | 归属地 + 反向解析；读不到本机网卡，改显示运行环境与边缘节点 |
+| IP 地址查询 | 归属地 + 反向解析，两端一致 | 同左（公网出口优先显示 IPv4） |
 | HTTP 调试 | 分段耗时（DNS/TCP/TLS）、HTTP 版本、可测自签证书 | `fetch` 代理，无分段耗时与版本号，其余一致 |
 | 静态资源 | 直接读 `public/` | `ASSETS` 绑定 |
 
-这些差异由 `src/platform/*` 上报的 `caps` 与 `limits` 决定，前端据返回字段自动降级展示（例如 IP 页在云端只显示单列）。
+这些差异由 `src/platform/*` 上报的 `caps` 与 `limits` 决定，前端据返回字段自动降级展示（例如端口扫描在云端把上限收紧到 150）。
 
 ## 依赖的第三方服务
 
-Workers 版不需要任何密钥，但用到这些公共服务：DoH 解析（Cloudflare / 腾讯 / Google）、归属地（ipwho.is、ip-api.com、ipinfo.io）、证书日志（Cert Spotter、crt.sh）。都有速率限制，个人使用足够；要做公开服务建议换自建或付费接口。
+Workers 版不需要任何密钥，但用到这些公共服务：DoH 解析（Cloudflare / 腾讯 / Google）、归属地（ipwho.is、ip-api.com、ipinfo.io）、证书数据（Cert Spotter、crt.sh、SSL Labs）。都有速率限制，个人使用足够；要做公开服务建议换自建或付费接口。
 
 ## 说明
 

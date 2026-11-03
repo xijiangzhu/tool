@@ -9,7 +9,7 @@
  */
 import dns from './api/dns.js';
 import httpProxy from './api/http.js';
-import { ipinfo, localip } from './api/ipinfo.js';
+import { ipinfo } from './api/ipinfo.js';
 import portscan from './api/portscan.js';
 import ssl from './api/ssl.js';
 import { corsHeaders, json, readJson, textResponse } from './lib/util.js';
@@ -22,7 +22,6 @@ const ROUTES = {
   '/api/net/dns': { fn: dns, wrap: true },
   '/api/net/portscan': { fn: portscan, wrap: true },
   '/api/net/ipinfo': { fn: ipinfo, wrap: true },
-  '/api/net/localip': { fn: localip, wrap: true },
 };
 
 function pathOf(request) {

@@ -1,6 +1,6 @@
 /* 应用入口：工具注册、导航、路由、主题 */
 
-import { h, esc, toast } from './ui.js';
+import { h, esc, toast, serverEnv } from './ui.js';
 
 import base64 from './tools/base64.js';
 import json from './tools/json.js';
@@ -194,16 +194,17 @@ let current = null;
 
 const MODES = {
   local: { cls: 'page-mode', text: '纯本地运算', tip: '全部计算在浏览器内完成，数据不会离开本机' },
-  net: { cls: 'page-mode net', text: '经本机服务转发', tip: '请求由本地 Node 服务代发，浏览器不直连第三方' },
-  edge: { cls: 'page-mode net', text: '经云端服务转发', tip: '请求由 Cloudflare Workers 边缘节点代发，浏览器不直连第三方' },
+  net: { cls: 'page-mode net', text: '经本机服务转发', tip: '请求由本机服务代发，浏览器不直连第三方' },
+  edge: { cls: 'page-mode net', text: '经云端服务转发', tip: '请求由云端服务代发，浏览器不直连第三方' },
 };
 
-/* 服务端运行环境：本地 Node 还是 Cloudflare Workers，决定「运行方式」胶囊文案 */
+/* 服务端运行环境：决定「运行方式」胶囊文案，并写入 serverEnv 供各工具读取 */
 let runtime = null;
 fetch('/api/health')
   .then((r) => r.json())
   .then((j) => {
     runtime = j && j.runtime ? j.runtime : null;
+    serverEnv.runtime = runtime;
     const tool = current && TOOLS.find((t) => t.id === current);
     if (runtime === 'workers' && tool && tool.net) applyMode(tool);
   })

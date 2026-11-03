@@ -47,7 +47,7 @@ export default {
           <div class="row mt10">
             <span class="note">支持直接粘贴 https:// 开头的完整地址</span>
             <span class="spacer"></span>
-            <label class="check"><input type="checkbox" id="probe" checked /> 探测 TLS 版本支持</label>
+            <label class="check" title="本地环境：逐版本 TLS 握手探测；云端环境：等待一次完整扫描补全协议支持（约 30~60 秒，结果缓存 7 天）"><input type="checkbox" id="probe" checked /> 深度检测</label>
           </div>
         </div>
       </section>
@@ -86,11 +86,11 @@ export default {
       const probe = wrap.querySelector('#probe').checked;
 
       setBusy(goBtn, true, '检测中');
-      resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">正在与 ' + esc(host) + ':' + port + ' 进行 TLS 握手…</div></div></div>';
+      resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">正在检测 ' + esc(host) + ':' + port + ' 的证书…</div></div></div>';
 
       let res;
       try {
-        res = await api('/api/ssl', { host, port, probe });
+        res = await api('/api/ssl', { host, port, probe, deep: probe });
       } catch (e) {
         setBusy(goBtn, false);
         resultEl.innerHTML = `<div class="card"><div class="card-body"><div class="alert err">请求失败：${esc(e.message)}</div></div></div>`;
@@ -147,6 +147,7 @@ export default {
           <div class="card-body">
             <div class="row" style="margin-bottom:14px">
               <span class="badge ${st.cls} lg">${st.text}</span>
+              ${d.grade ? `<span class="badge info" title="SSL Labs 评级">${esc(d.grade)}</span>` : ''}
               <span class="out-meta">${
                 d.daysLeft === null
                   ? '—'
@@ -158,7 +159,7 @@ export default {
               <span class="out-meta">解析 IP：${esc((d.resolved || []).join(', ') || '-')}</span>
             </div>
             ${
-              d.mode === 'ct'
+              d.mode !== 'tls'
                 ? `<div class="row" style="gap:8px;margin-bottom:8px">
                     <span class="badge ${d.live && d.live.ok ? 'ok' : 'err'}">${
                       d.live && d.live.ok ? '实时可达' : '连接失败'
@@ -169,9 +170,9 @@ export default {
                         : esc((d.live && d.live.error) || '无法建立 TLS 连接')
                     }</span>
                   </div>
-                  <div class="note" style="margin-bottom:12px">证书信息取自公共 CT 日志（${esc(
-                    (d.ct && d.ct.source) || '未知来源'
-                  )}），未做实时握手，协议与加密套件不可用</div>`
+                  <div class="note" style="margin-bottom:12px">云端环境读不到 TLS 对端证书，检测数据来自${
+                    esc(d.source || '公共数据源')
+                  }${d.protocols ? '' : '，协议与加密套件不可用'}</div>`
                 : ''
             }
             <div class="progress ${st.cls === 'ok' ? '' : st.cls}" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%"></i></div>
@@ -236,26 +237,15 @@ export default {
           <div class="card-body">
             <div class="chips">${protoChips}</div>
             <div class="mt8 out-meta">${
-              d.mode === 'ct'
-                ? '云端模式未做逐版本握手探测，无法判断 TLS 1.0 / 1.1 支持情况'
+              d.mode !== 'tls'
+                ? d.protocols
+                  ? '协议支持情况来自 SSL Labs 的服务端扫描'
+                  : '云端模式未做逐版本握手探测，无法判断 TLS 1.0 / 1.1 支持情况'
                 : `本次连接使用：${esc(d.protocol || '-')} · 套件 ${esc((d.cipher && d.cipher.name) || '-')}`
             }</div>
           </div>
         </section>
       `;
-
-      // 云端拿不到握手信息，逐版本探测没有意义
-      const probeBox = wrap.querySelector('#probe');
-      if (d.mode === 'ct') {
-        if (probeBox) {
-          probeBox.checked = false;
-          probeBox.disabled = true;
-          const lb = probeBox.closest('label');
-          if (lb) lb.title = '云端模式无法做逐版本 TLS 握手探测';
-        }
-      } else if (probeBox) {
-        probeBox.disabled = false;
-      }
 
       const fpBtn = resultEl.querySelector('#copyFp');
       if (fpBtn) fpBtn.addEventListener('click', () => copy((leaf && leaf.fingerprint256) || ''));

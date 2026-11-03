@@ -1,6 +1,7 @@
 /* SSL 证书检测：平台能发起真实 TLS 握手时直接读证书；
-   云端拿不到对端证书，退化为「CT 日志证书元数据 + 实时可达探测」。 */
+   云端拿不到对端证书，用「CT 日志（证书字段）+ SSL Labs（协议支持与评级）+ 实时可达探测」。 */
 import { ctLookup, formatFingerprint } from '../lib/ct.js';
+import { ssllabsInfo } from '../lib/ssllabs.js';
 import { clamp, isIP } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
@@ -73,9 +74,9 @@ export default async function sslCheck(input) {
   }
 
   if (isIP(host)) {
-    throw new Error('云端证书信息来自公共 CT 日志（按域名索引），请填写域名而不是 IP');
+    throw new Error('云端证书信息来自公共数据源（按域名索引），请填写域名而不是 IP');
   }
-  return fromCtLog({ host, port, resolved, started });
+  return fromRemoteSources({ host, port, resolved, started, deep: !!input.deep });
 }
 
 /** 真实握手：协议、套件、证书链、信任链、主机名匹配 */
@@ -116,70 +117,160 @@ function fromHandshake({ host, port, resolved, info, started }) {
   };
 }
 
-/** 云端：CT 日志拿证书 + 实时探测站点是否可以握手 */
-async function fromCtLog({ host, port, resolved, started }) {
-  const [ct, live] = await Promise.all([ctLookup(host), liveProbe(host, port)]);
-  const cert = ct.cert;
+/** 云端：CT 日志出证书字段 + SSL Labs 出协议支持与评级 + 实时可达探测 */
+async function fromRemoteSources({ host, port, resolved, started, deep }) {
+  const liveP = liveProbe(host, port);
+  const [labs, ct] = await Promise.all([
+    ssllabsInfo(host).catch(() => null),
+    ctLookup(host).catch(() => null),
+  ]);
+  let ctData = ct && ct.cert ? ct : null;
+  let labsData = labs;
 
-  const notBeforeDate = cert && cert.notBefore ? new Date(cert.notBefore) : null;
-  const notAfterDate = cert && cert.notAfter ? new Date(cert.notAfter) : null;
-  const notBefore = notBeforeDate ? notBeforeDate.toISOString() : null;
-  const notAfter = notAfterDate ? notAfterDate.toISOString() : null;
-  const { daysLeft, totalDays } = periodFields(
-    notBeforeDate ? notBeforeDate.getTime() : null,
-    notAfterDate ? notAfterDate.getTime() : null
-  );
+  // 深度检测：CT 没查到证书时等一次 SSL Labs 完整扫描（结果被缓存，下次秒回），同时重试 CT
+  if (!ctData && deep) {
+    const [labs2, ct2] = await Promise.all([
+      labsData ? Promise.resolve(labsData) : ssllabsInfo(host, { scanBudgetMs: 60000 }).catch(() => null),
+      ctLookup(host).catch(() => null),
+    ]);
+    labsData = labsData || labs2;
+    ctData = ct2 && ct2.cert ? ct2 : null;
+  }
 
+  const live = await liveP;
+  const source =
+    [
+      ctData ? `CT 日志（${ctData.cert.source}）` : null,
+      labsData ? 'SSL Labs' : null,
+    ]
+      .filter(Boolean)
+      .join(' + ') || null;
+
+  if (!ctData && !labsData) {
+    return {
+      host,
+      port,
+      resolved,
+      status: 'unknown',
+      daysLeft: null,
+      totalDays: null,
+      notBefore: null,
+      notAfter: null,
+      hostMatch: null,
+      authorized: null,
+      authorizationError: null,
+      protocol: null,
+      cipher: null,
+      chain: [],
+      protocols: null,
+      checkedAt: new Date().toISOString(),
+      mode: 'remote',
+      source: null,
+      ct: { source: null, total: 0, errors: (ct && ct.errors) || ['未查到公开证书记录'] },
+      live,
+      elapsed: Date.now() - started,
+    };
+  }
+
+  const result = ctData
+    ? buildFromCt(host, port, started, ctData)
+    : {
+        status: 'unknown',
+        daysLeft: null,
+        totalDays: null,
+        notBefore: null,
+        notAfter: null,
+        hostMatch: null,
+        authorized: null,
+        authorizationError: null,
+        chain: [],
+        leaf: null,
+        ctErrors: (ct && ct.errors) || [],
+      };
+  if (labsData) {
+    result.protocols = labsData.protocols;
+    result.grade = labsData.grade;
+  }
+  result.source = source;
+  result.resolved = resolved;
+  result.live = live;
+  result.elapsed = Date.now() - started;
+  return result;
+}
+
+/** 公共数据源结果的统一组装：日期、剩余天数、结论状态 */
+function remoteResult({ host, port, started, meta, leaf, chain, protocols, source, grade, ctErrors }) {
+  const nb = meta.notBefore ? new Date(meta.notBefore) : null;
+  const na = meta.notAfter ? new Date(meta.notAfter) : null;
+  const { daysLeft, totalDays } = periodFields(nb ? nb.getTime() : null, na ? na.getTime() : null);
   const status = computeStatus({
-    notBefore: notBeforeDate ? notBeforeDate.getTime() : null,
-    notAfter: notAfterDate ? notAfterDate.getTime() : null,
+    notBefore: nb ? nb.getTime() : null,
+    notAfter: na ? na.getTime() : null,
     daysLeft,
-    hostMatch: cert ? cert.hostMatch : null,
+    hostMatch: meta.hostMatch,
     selfSigned: false,
     authorized: null,
     authorizationError: null,
-    known: !!cert,
+    known: !!(nb || na || (meta.names && meta.names.length)),
   });
-
-  const leaf = cert
-    ? {
-        subject: `CN=${cert.cn}`,
-        issuer: cert.issuer,
-        subjectAltName: cert.names.map((n) => ({ type: 'DNS', value: n })),
-        validFrom: notBefore,
-        validTo: notAfter,
-        serialNumber: cert.serial,
-        fingerprint256: cert.fingerprint ? formatFingerprint(cert.fingerprint) : null,
-        publicKey: { type: null, bits: null },
-        ca: false,
-        selfSigned: false,
-        keyUsage: null,
-        infoAccess: null,
-      }
-    : null;
-
   return {
     host,
     port,
-    resolved,
     status,
     daysLeft,
     totalDays,
-    notBefore,
-    notAfter,
-    hostMatch: cert ? cert.hostMatch : null,
+    notBefore: nb ? nb.toISOString() : null,
+    notAfter: na ? na.toISOString() : null,
+    hostMatch: meta.hostMatch,
     authorized: null,
     authorizationError: null,
     protocol: null,
     cipher: null,
-    chain: leaf ? [leaf] : [],
-    protocols: null,
+    chain,
+    protocols: protocols || null,
+    grade: grade || null,
     checkedAt: new Date().toISOString(),
-    mode: 'ct',
-    ct: { source: cert ? cert.source : null, total: cert ? cert.total : 0, errors: ct.errors },
-    live,
-    elapsed: Date.now() - started,
+    mode: 'remote',
+    source,
+    ct: { source: null, total: 0, errors: ctErrors || [] },
   };
+}
+
+/** CT 日志数据 → 统一结果（协议/评级由调用方按 SSL Labs 结果覆盖） */
+function buildFromCt(host, port, started, ct) {
+  const cert = ct.cert;
+  const meta = {
+    names: cert.names,
+    notBefore: cert.notBefore,
+    notAfter: cert.notAfter,
+    hostMatch: cert.hostMatch,
+  };
+  const notBefore = cert.notBefore ? new Date(cert.notBefore).toISOString() : null;
+  const notAfter = cert.notAfter ? new Date(cert.notAfter).toISOString() : null;
+  const leaf = {
+    subject: `CN=${cert.cn}`,
+    issuer: cert.issuer,
+    subjectAltName: cert.names.map((n) => ({ type: 'DNS', value: n })),
+    validFrom: notBefore,
+    validTo: notAfter,
+    serialNumber: cert.serial,
+    fingerprint256: cert.fingerprint ? formatFingerprint(cert.fingerprint) : null,
+    publicKey: { type: null, bits: null },
+    ca: false,
+    selfSigned: false,
+    keyUsage: null,
+    infoAccess: null,
+  };
+  return remoteResult({
+    host,
+    port,
+    started,
+    meta,
+    leaf,
+    chain: [leaf],
+    protocols: null,
+    ctErrors: ct.errors,
+  });
 }
 
 /** 实时探测：能读到响应头即说明 TLS 握手 + HTTP 都成功 */

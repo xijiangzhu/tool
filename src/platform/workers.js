@@ -126,22 +126,6 @@ export default {
     });
   },
 
-  /** 云端没有本机网卡，返回运行环境信息供前端降级展示 */
-  async localInfo(request) {
-    const cf = request.cf || {};
-    return {
-      hostname: null,
-      platform: 'cloudflare',
-      release: null,
-      addressCount: 0,
-      interfaces: [],
-      runtime: 'workers',
-      colo: cf.colo || null,
-      country: cf.country || null,
-      clientIp: request.headers.get('cf-connecting-ip') || null,
-    };
-  },
-
   /** 静态资源交给 ASSETS 绑定 */
   async serveStatic(request, env) {
     if (!env || !env.ASSETS) return null;

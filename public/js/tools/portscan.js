@@ -1,5 +1,10 @@
 /* TCP 端口扫描 */
-import { h, toast, esc, api, remember, setBusy } from '../ui.js';
+import { h, toast, esc, api, remember, setBusy, serverEnv } from '../ui.js';
+
+/* 端口数上限：云端环境单次 150 个，本地放宽到 2000 */
+const MAX_PORTS_LOCAL = 2000;
+const MAX_PORTS_EDGE = 150;
+const maxPorts = () => (serverEnv.runtime === 'workers' ? MAX_PORTS_EDGE : MAX_PORTS_LOCAL);
 
 const COMMON =
   '21,22,23,25,53,80,110,111,123,135,139,143,161,389,443,445,465,514,587,636,873,993,995,1080,1433,1521,1723,2049,2181,2375,3000,3306,3389,5000,5432,5601,5672,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9200,9300,11211,27017';
@@ -48,7 +53,7 @@ export default {
             <div class="chips mt8">
               ${PRESETS.map(([n, v]) => `<span class="chip" data-v="${v}">${n}</span>`).join('')}
             </div>
-            <div class="hint">单次最多 2000 个端口（部署到 Cloudflare Workers 时上限 150 个），支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。</div>
+            <div class="hint" id="portHint"></div>
           </div>
 
           <div class="btn-row">
@@ -76,6 +81,44 @@ export default {
     const outEl = wrap.querySelector('#out');
     const metaEl = wrap.querySelector('#meta');
     const btn = wrap.querySelector('#run');
+
+    /* 按当前运行环境生成提示文案（云端上限 150，本地 2000） */
+    function refreshHint() {
+      wrap.querySelector('#portHint').textContent =
+        `单次最多 ${maxPorts()} 个端口，支持逗号与区间混写。` +
+        '超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。';
+    }
+    refreshHint();
+    if (serverEnv.runtime == null) {
+      // 运行环境尚未探测完成：拿到结果后刷新一次
+      const t = setInterval(() => {
+        if (serverEnv.runtime) {
+          refreshHint();
+          clearInterval(t);
+        }
+      }, 300);
+      setTimeout(() => clearInterval(t), 5000);
+    }
+
+    /** 统计端口写法覆盖的端口数：'80,443' → 2，'1-1024' → 1024；写法非法返回 NaN */
+    function portCount(s) {
+      let n = 0;
+      for (const part of String(s).split(',')) {
+        const t = part.trim();
+        if (!t) continue;
+        const m = /^(\d+)-(\d+)$/.exec(t);
+        if (m) {
+          const a = Number(m[1]);
+          const b = Number(m[2]);
+          if (a < 1 || b > 65535 || a > b) return NaN;
+          n += b - a + 1;
+        } else if (/^\d+$/.test(t)) {
+          if (Number(t) < 1 || Number(t) > 65535) return NaN;
+          n += 1;
+        } else return NaN;
+      }
+      return n;
+    }
 
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
       c.addEventListener('click', () => {
@@ -116,13 +159,25 @@ export default {
     async function run() {
       const host = hostEl.value.trim();
       if (!host) return toast('请输入域名或 IP', 'err');
+      const portsStr = portsEl.value.trim();
+      const count = portCount(portsStr);
+      const cap = maxPorts();
+      if (Number.isNaN(count)) return toast('端口写法不合法，示例：22,80,443 或 1-1024', 'err');
+      if (count > cap) {
+        return toast(
+          serverEnv.runtime === 'workers'
+            ? `云端环境单次最多扫描 ${cap} 个端口（当前 ${count} 个），请缩小范围`
+            : `单次最多扫描 ${cap} 个端口（当前 ${count} 个）`,
+          'err'
+        );
+      }
       setBusy(btn, true, '扫描中');
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';
       metaEl.textContent = '';
       try {
         const r = await api('/api/net/portscan', {
           host,
-          ports: portsEl.value.trim(),
+          ports: portsStr,
           timeout: Number(wrap.querySelector('#timeout').value),
         });
         if (!r.ok) throw new Error(r.error);

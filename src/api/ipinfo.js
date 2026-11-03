@@ -60,8 +60,3 @@ export async function ipinfo(input, ctx) {
     elapsed: Date.now() - started,
   };
 }
-
-export async function localip(input, ctx) {
-  const p = await platform();
-  return p.localInfo(ctx.request);
-}
