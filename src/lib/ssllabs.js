@@ -4,9 +4,11 @@
 
 const API = 'https://api.ssllabs.com/api/v3';
 
+const UA = 'ops-toolbox/1.0 (+https://github.com/xijiangzhu/tool)';
+
 async function apiGet(params, timeoutMs = 10000) {
   const res = await fetch(`${API}/analyze?${params}`, {
-    headers: { accept: 'application/json' },
+    headers: { accept: 'application/json', 'user-agent': UA },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`SSL Labs HTTP ${res.status}`);
@@ -14,9 +16,10 @@ async function apiGet(params, timeoutMs = 10000) {
 }
 
 /** 查缓存：最近扫描过的结果直接可用；maxAge 单位小时 */
-async function cached(host, maxAge = 168) {
+async function cached(host, maxAge = 168, timeoutMs = 8000) {
   const r = await apiGet(
-    `host=${encodeURIComponent(host)}&all=done&fromCache=on&maxAge=${maxAge}`
+    `host=${encodeURIComponent(host)}&all=done&fromCache=on&maxAge=${maxAge}`,
+    timeoutMs
   );
   return extract(r);
 }
@@ -25,7 +28,7 @@ async function cached(host, maxAge = 168) {
 async function scan(host, budgetMs) {
   await apiGet(
     `host=${encodeURIComponent(host)}&all=done&startNew=on&ignoreMismatch=on`,
-    15000
+    Math.max(4000, Math.min(10000, budgetMs))
   );
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
@@ -74,9 +77,9 @@ function extract(r) {
  *   2. scanBudgetMs > 0 且缓存未命中 → 发起新扫描并轮询
  * 返回 null 表示没有拿到，由调用方决定是否降级。
  */
-export async function ssllabsInfo(host, { scanBudgetMs = 0 } = {}) {
+export async function ssllabsInfo(host, { scanBudgetMs = 0, timeoutMs = 8000 } = {}) {
   try {
-    const hit = await cached(host);
+    const hit = await cached(host, 168, timeoutMs);
     if (hit) return hit;
   } catch (_) {
     /* 缓存查询失败继续 */

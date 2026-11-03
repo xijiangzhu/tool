@@ -18,6 +18,9 @@ export function certMatches(host, names) {
 
 const unescapeDn = (s) => String(s || '').replace(/\\([,+="<>;#])/g, '$1');
 
+/* 部分 CT 服务会拦掉默认 UA，统一带上可识别的标识 */
+const UA = { 'user-agent': 'ops-toolbox/1.0 (+https://github.com/xijiangzhu/tool)' };
+
 /** CT 日志只有 SAN 列表：取「匹配该主机名」的那个名字作为 CN */
 function bestName(host, names) {
   const exact = names.find((n) => n === host);
@@ -39,8 +42,14 @@ async function fromCertSpotter(host) {
     'https://api.certspotter.com/v1/issuances?domain=' +
     encodeURIComponent(host) +
     '&include_subdomains=false&expand=dns_names&expand=issuer&expand=cert';
-  const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(9000) });
+  const res = await fetch(url, {
+    headers: { accept: 'application/json', ...UA },
+    signal: AbortSignal.timeout(8000),
+  });
   if (!res.ok) throw new Error(`Cert Spotter HTTP ${res.status}`);
+  if (Number(res.headers.get('content-length') || 0) > 3_000_000) {
+    throw new Error('Cert Spotter 返回数据过大，已跳过');
+  }
   const list = await res.json();
   if (!Array.isArray(list) || !list.length) return null;
   const certs = list.map((c) => {
@@ -63,11 +72,15 @@ async function fromCertSpotter(host) {
 async function fromCrtSh(host) {
   const url = `https://crt.sh/?q=${encodeURIComponent(host)}&output=json&exclude=expired`;
   const res = await fetch(url, {
-    headers: { accept: 'application/json', 'user-agent': 'ops-toolbox/1.0' },
-    signal: AbortSignal.timeout(12000),
+    headers: { accept: 'application/json', ...UA },
+    signal: AbortSignal.timeout(9000),
   });
   if (!res.ok) throw new Error(`crt.sh HTTP ${res.status}`);
+  // 大域名下 crt.sh 会返回数 MB JSON，云端实例 CPU 配额有限，解析会直接超限，先按体积挡掉
+  const len = Number(res.headers.get('content-length') || 0);
+  if (len > 2_000_000) throw new Error('crt.sh 返回数据过大，已跳过');
   const raw = await res.text();
+  if (raw.length > 3_000_000) throw new Error('crt.sh 返回数据过大，已跳过');
   let list;
   try {
     list = JSON.parse(raw);
@@ -95,17 +108,22 @@ async function fromCrtSh(host) {
   return pickLatest(host, certs);
 }
 
-/** 依次尝试各家 CT 日志；返回 { cert, errors } */
+/** 并发查询多家 CT 日志，谁先给出有效证书就立即返回；返回 { cert, errors } */
 export async function ctLookup(host) {
   const errors = [];
-  for (const fn of [fromCertSpotter, fromCrtSh]) {
-    try {
-      const cert = await fn(host);
-      if (cert) return { cert, errors };
-      errors.push(`${fn.name}: 未查到公开证书记录`);
-    } catch (e) {
-      errors.push(e.message || String(e));
-    }
+  const fns = [fromCertSpotter, fromCrtSh];
+  const entries = fns.map((fn, i) =>
+    fn(host).then(
+      (cert) => ({ i, cert }),
+      (e) => ({ i, error: `${fn.name}: ${(e && e.message) || e}` })
+    )
+  );
+  const done = new Set();
+  while (done.size < entries.length) {
+    const r = await Promise.race(entries.filter((_, i) => !done.has(i)));
+    done.add(r.i);
+    if (r.cert) return { cert: r.cert, errors };
+    errors.push(r.error || 'CT 日志: 未查到公开证书记录');
   }
   return { cert: null, errors };
 }

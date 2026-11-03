@@ -1,5 +1,5 @@
 /* SSL 证书检测 */
-import { h, api, copy, toast, esc, remember, setBusy, fmtDateTime } from '../ui.js';
+import { h, api, copy, toast, esc, remember, setBusy, fmtDateTime, serverEnv } from '../ui.js';
 
 const STATUS_MAP = {
   valid: { cls: 'ok', text: '证书有效' },
@@ -47,7 +47,7 @@ export default {
           <div class="row mt10">
             <span class="note">支持直接粘贴 https:// 开头的完整地址</span>
             <span class="spacer"></span>
-            <label class="check" title="本地环境：逐版本 TLS 握手探测；云端环境：等待一次完整扫描补全协议支持（约 30~60 秒，结果缓存 7 天）"><input type="checkbox" id="probe" checked /> 深度检测</label>
+            <label class="check" title="本地环境：逐版本 TLS 握手探测；云端环境：等待一次完整扫描补全协议支持（约 10~30 秒，结果会被缓存）"><input type="checkbox" id="probe" checked /> 深度检测</label>
           </div>
         </div>
       </section>
@@ -57,7 +57,21 @@ export default {
 
     const resultEl = wrap.querySelector('#result');
     const goBtn = wrap.querySelector('#go');
+    const probeBox = wrap.querySelector('#probe');
     remember(wrap.querySelector('#host'), 'ssl.host');
+
+    /* 云端做完整扫描要等十几秒，默认不勾；本地只是逐版本握手，默认勾上。
+       运行环境可能还没探测完，等 /api/health 返回后再决定一次 */
+    if (serverEnv.runtime) probeBox.checked = serverEnv.runtime !== 'workers';
+    else {
+      const t = setInterval(() => {
+        if (serverEnv.runtime) {
+          probeBox.checked = serverEnv.runtime !== 'workers';
+          clearInterval(t);
+        }
+      }, 200);
+      setTimeout(() => clearInterval(t), 4000);
+    }
 
     function normalizeTarget(raw) {
       let s = String(raw || '').trim();
@@ -156,7 +170,7 @@ export default {
                   : `剩余 ${d.daysLeft} 天（总有效期 ${d.totalDays} 天）`
               }</span>
               <span class="spacer"></span>
-              <span class="out-meta">解析 IP：${esc((d.resolved || []).join(', ') || '-')}</span>
+              <span class="out-meta">解析 IP：${esc((d.resolved || []).join(', ') || '-')}${d.cached ? ' · 10 分钟内缓存' : ''}</span>
             </div>
             ${
               d.mode !== 'tls'
@@ -173,6 +187,21 @@ export default {
                   <div class="note" style="margin-bottom:12px">云端环境读不到 TLS 对端证书，检测数据来自${
                     esc(d.source || '公共数据源')
                   }${d.protocols ? '' : '，协议与加密套件不可用'}</div>`
+                : ''
+            }
+            ${
+              d.status === 'unknown'
+                ? (() => {
+                    const list = [...((d.errors || [])), ...(((d.ct && d.ct.errors) || []))].slice(0, 4);
+                    return list.length
+                      ? `<div class="note" style="margin-bottom:12px">公共数据源查询失败：${esc(list.join('；'))}</div>`
+                      : '';
+                  })()
+                : ''
+            }
+            ${
+              d.dnsError
+                ? `<div class="note" style="margin-bottom:8px">${esc(d.dnsError)}（证书信息来自公共数据源，不依赖本地解析）</div>`
                 : ''
             }
             <div class="progress ${st.cls === 'ok' ? '' : st.cls}" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%"></i></div>

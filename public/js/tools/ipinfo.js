@@ -22,34 +22,45 @@ function coordText(g) {
 }
 
 /* 双栈网络下浏览器会优先用 IPv6 连到站点，服务端只能看到 IPv6 出口；
-   这里由浏览器自己去问一个「只有 A 记录」的接口，拿到同一网络的 IPv4 出口地址。 */
+   这里由浏览器自己去问「只有 A 记录」的接口，拿到同一网络的 IPv4 出口地址。
+   全部注册源都确认过只有 A 记录，且带 Access-Control-Allow-Origin，可被浏览器直连。 */
 const V4_SOURCES = [
-  { url: 'https://v4.ident.me', json: false },
+  { url: 'https://api-ipv4.ip.sb', json: false },
   { url: 'https://ipv4.icanhazip.com', json: false },
-  { url: 'https://api.ipify.org?format=json', json: true },
+  { url: 'https://v4.ident.me', json: false },
 ];
 const V4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
-async function detectIpv4(budget = 3200) {
-  const deadline = Date.now() + budget;
-  for (const s of V4_SOURCES) {
-    const left = deadline - Date.now();
-    if (left <= 200) break;
+/** 多源并发抢跑：谁先返回合法 IPv4 用谁，避免某个源在特定网络不可达时整体失败 */
+async function detectIpv4(budget = 4500) {
+  const ctrls = [];
+  const tasks = V4_SOURCES.map(async (s) => {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), Math.min(1600, left));
+    ctrls.push(ctrl);
+    const timer = setTimeout(() => ctrl.abort(), budget);
     try {
       const res = await fetch(s.url, { signal: ctrl.signal, cache: 'no-store' });
-      if (!res.ok) continue;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = (await res.text()).trim();
-      const v = s.json ? (JSON.parse(text).ip || '') : text;
-      if (V4_RE.test(v)) return v;
-    } catch (_) {
-      /* 换下一个来源 */
+      const v = s.json || text.startsWith('{') ? JSON.parse(text).ip || '' : text;
+      if (!V4_RE.test(v)) throw new Error('not ipv4');
+      return v;
     } finally {
       clearTimeout(timer);
     }
+  });
+  try {
+    const v4 = await Promise.any(tasks);
+    return V4_RE.test(v4) ? v4 : null;
+  } catch (_) {
+    return null;
+  } finally {
+    ctrls.forEach((c) => {
+      try {
+        c.abort();
+      } catch (_) {}
+    });
   }
-  return null;
 }
 
 /** 出口是 IPv6 时补一次 IPv4 查询：拿到就用 IPv4 作为主显示，IPv6 收进副行 */
@@ -138,10 +149,12 @@ export default {
       }
       pubIpEl.textContent = d.ip;
       pubBadgeEl.className = 'badge ok';
-      pubBadgeEl.textContent = d.altV6 ? 'IPv4' : d.scope ? d.scope.label : '公网地址';
+      pubBadgeEl.textContent = d.altV6 ? 'IPv4' : d.version === 'IPv6' ? 'IPv6' : d.scope ? d.scope.label : '公网地址';
       pubWhereEl.textContent = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
-      const meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
-      pubMetaEl.textContent = d.altV6 ? `${meta} · IPv6 出口 ${d.altV6}（已优先显示 IPv4）` : meta;
+      let meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
+      if (d.altV6) meta += ` · IPv6 出口 ${d.altV6}（已优先显示 IPv4）`;
+      else if (d.version === 'IPv6') meta += ' · 未取到 IPv4 出口，可点刷新重试';
+      pubMetaEl.textContent = meta;
     }
 
     async function loadMine() {

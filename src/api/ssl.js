@@ -5,6 +5,26 @@ import { ssllabsInfo } from '../lib/ssllabs.js';
 import { clamp, isIP } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
+/* 云端结果缓存：公共源都有速率限制，同一主机 10 分钟内直接复用，避免重复外呼与超时 */
+const CACHE_TTL = 10 * 60 * 1000;
+const CACHE_MAX = 200;
+const remoteCache = new Map();
+
+function cacheGet(key) {
+  const hit = remoteCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_TTL) {
+    remoteCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function cacheSet(key, value) {
+  if (remoteCache.size >= CACHE_MAX) remoteCache.delete(remoteCache.keys().next().value);
+  remoteCache.set(key, { at: Date.now(), value });
+}
+
 /** 允许传入 https://example.com/path、example.com:8443 等写法 */
 function normalizeTarget(input) {
   let host = String(input.host || '').trim();
@@ -50,15 +70,16 @@ export default async function sslCheck(input) {
   const timeoutMs = clamp(Number(input.timeout) || 12000, 1000, 30000);
   const probe = input.probe !== false;
 
-  // 解析 IP 仅用于展示与报错定位，解析失败直接说明原因
+  // 解析 IP 仅用于展示与定位，解析失败不阻断：证书信息来自公共数据源，不依赖本地解析
   let resolved = [host];
+  let dnsError = null;
   if (!isIP(host)) {
     try {
       resolved = await p.lookupIps(host);
     } catch (e) {
-      throw new Error(`DNS 解析失败：${e.code || e.message}`);
+      dnsError = `DNS 解析失败：${e.code || e.message}`;
+      resolved = [];
     }
-    if (!resolved.length) throw new Error(`DNS 解析失败：${host} 没有解析记录`);
   }
 
   if (p.caps.tls) {
@@ -76,7 +97,24 @@ export default async function sslCheck(input) {
   if (isIP(host)) {
     throw new Error('云端证书信息来自公共数据源（按域名索引），请填写域名而不是 IP');
   }
-  return fromRemoteSources({ host, port, resolved, started, deep: !!input.deep });
+
+  const key = `${host}:${port}`;
+  const cached = input.refresh ? null : cacheGet(key);
+  if (cached) return { ...cached, resolved, elapsed: Date.now() - started, cached: true };
+
+  // 硬截止 20 秒：Workers 单个请求有固定时长上限，不允许外部源把请求拖死
+  const deadline = started + 20000;
+  const result = await fromRemoteSources({
+    host,
+    port,
+    resolved,
+    started,
+    deadline,
+    deep: !!input.deep,
+    dnsError,
+  });
+  if (result.status !== 'unknown') cacheSet(key, result);
+  return result;
 }
 
 /** 真实握手：协议、套件、证书链、信任链、主机名匹配 */
@@ -118,31 +156,41 @@ function fromHandshake({ host, port, resolved, info, started }) {
 }
 
 /** 云端：CT 日志出证书字段 + SSL Labs 出协议支持与评级 + 实时可达探测 */
-async function fromRemoteSources({ host, port, resolved, started, deep }) {
-  const liveP = liveProbe(host, port);
+async function fromRemoteSources({ host, port, resolved, started, deadline, deep, dnsError }) {
+  const remain = () => Math.max(0, deadline - Date.now());
+  const liveP = liveProbe(host, port, Math.min(9000, Math.max(2000, remain())));
+  const errors = [];
+
   const [labs, ct] = await Promise.all([
-    ssllabsInfo(host).catch(() => null),
-    ctLookup(host).catch(() => null),
+    ssllabsInfo(host, { timeoutMs: 6000 }).catch((e) => {
+      errors.push(`SSL Labs：${(e && e.message) || e}`);
+      return null;
+    }),
+    ctLookup(host).catch((e) => {
+      errors.push(`CT 日志：${(e && e.message) || e}`);
+      return null;
+    }),
   ]);
+  if (ct && ct.errors) errors.push(...ct.errors);
   let ctData = ct && ct.cert ? ct : null;
   let labsData = labs;
 
-  // 深度检测：CT 没查到证书时等一次 SSL Labs 完整扫描（结果被缓存，下次秒回），同时重试 CT
-  if (!ctData && deep) {
-    const [labs2, ct2] = await Promise.all([
-      labsData ? Promise.resolve(labsData) : ssllabsInfo(host, { scanBudgetMs: 60000 }).catch(() => null),
-      ctLookup(host).catch(() => null),
-    ]);
-    labsData = labsData || labs2;
-    ctData = ct2 && ct2.cert ? ct2 : null;
+  // 深度检测：缺证书字段或缺协议支持时，等一次 SSL Labs 完整扫描（必须留在硬截止时间内）
+  if (deep && (!ctData || !labsData)) {
+    const budget = Math.min(12000, remain() - 2500);
+    if (budget >= 4000) {
+      const [labs2, ct2] = await Promise.all([
+        labsData ? Promise.resolve(labsData) : ssllabsInfo(host, { scanBudgetMs: budget }).catch(() => null),
+        ctData ? Promise.resolve(ct) : ctLookup(host).catch(() => null),
+      ]);
+      labsData = labsData || labs2;
+      ctData = ctData || (ct2 && ct2.cert ? ct2 : null);
+    }
   }
 
   const live = await liveP;
   const source =
-    [
-      ctData ? `CT 日志（${ctData.cert.source}）` : null,
-      labsData ? 'SSL Labs' : null,
-    ]
+    [ctData ? `CT 日志（${ctData.cert.source}）` : null, labsData ? 'SSL Labs' : null]
       .filter(Boolean)
       .join(' + ') || null;
 
@@ -166,8 +214,9 @@ async function fromRemoteSources({ host, port, resolved, started, deep }) {
       checkedAt: new Date().toISOString(),
       mode: 'remote',
       source: null,
-      ct: { source: null, total: 0, errors: (ct && ct.errors) || ['未查到公开证书记录'] },
+      ct: { source: null, total: 0, errors },
       live,
+      dnsError,
       elapsed: Date.now() - started,
     };
   }
@@ -185,7 +234,7 @@ async function fromRemoteSources({ host, port, resolved, started, deep }) {
         authorizationError: null,
         chain: [],
         leaf: null,
-        ctErrors: (ct && ct.errors) || [],
+        ctErrors: [],
       };
   if (labsData) {
     result.protocols = labsData.protocols;
@@ -194,6 +243,8 @@ async function fromRemoteSources({ host, port, resolved, started, deep }) {
   result.source = source;
   result.resolved = resolved;
   result.live = live;
+  result.errors = errors;
+  result.dnsError = dnsError;
   result.elapsed = Date.now() - started;
   return result;
 }
@@ -274,14 +325,14 @@ function buildFromCt(host, port, started, ct) {
 }
 
 /** 实时探测：能读到响应头即说明 TLS 握手 + HTTP 都成功 */
-async function liveProbe(host, port) {
+async function liveProbe(host, port, timeoutMs = 9000) {
   const t0 = Date.now();
   try {
     const res = await fetch(`https://${host}:${port}/`, {
       method: 'GET',
       redirect: 'manual',
       headers: { 'user-agent': 'ops-toolbox/1.0', accept: '*/*' },
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     try {
       await res.body?.cancel();
