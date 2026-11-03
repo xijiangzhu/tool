@@ -1,0 +1,19 @@
+{
+  "name": "ops-toolbox",
+  "version": "1.0.0",
+  "description": "运维工具箱：网络工具 / 时间与调度 / 格式化与预览 / 编码转换，14 个纯本地工具",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "js-yaml": "^5.5.0",
+    "marked": "^18.1.2",
+    "prismjs": "^1.30.0"
+  },
+  "private": true
+}
