@@ -33,7 +33,7 @@ export default {
       <section class="card">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>请求</div>
-          <div class="card-note">由本机服务端代理发出，无跨域限制</div>
+          <div class="card-note">由服务端代理发出，无跨域限制</div>
         </div>
         <div class="card-body">
           <div class="http-url-row">
@@ -194,7 +194,7 @@ export default {
               <span class="badge ${cls} http-code">${res.status} ${esc(res.statusText || '')}</span>
               <span class="metric"><i>总耗时</i><b>${res.elapsed} ms</b></span>
               <span class="metric"><i>大小</i><b>${fmtBytes(res.size)}</b></span>
-              <span class="metric"><i>协议</i><b>HTTP/${res.httpVersion}</b></span>
+              <span class="metric"><i>协议</i><b>${res.httpVersion ? 'HTTP/' + esc(res.httpVersion) : '—'}</b></span>
               ${t.ttfb != null ? `<span class="metric"><i>分段</i><b class="fs12">${timingsText(t)}</b></span>` : ''}
               ${redirects.length ? `<span class="metric"><i>重定向</i><b>${redirects.length} 次</b></span>` : ''}
             </div>

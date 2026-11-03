@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ops-toolbox",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  // 静态资源：public/ 直接托管，未命中文件时才会进入 Worker（/api/* 走 Worker）
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

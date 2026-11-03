@@ -75,7 +75,7 @@ export default {
               <div class="myip-sub" id="pubWhere">—</div>
               <div class="myip-sub dim" id="pubMeta"></div>
             </div>
-            <div class="myip-item">
+            <div class="myip-item" id="lanCell">
               <div class="myip-label">本机内网 IP<span class="badge info" id="lanBadge">—</span></div>
               <div class="myip-ip mono" id="lanIp">—</div>
               <div class="myip-sub" id="lanSub">—</div>
@@ -83,9 +83,9 @@ export default {
           </div>
 
           <div class="myip-facts">
-            <span><i>主机名</i><b class="mono" id="stHost">—</b></span>
-            <span><i>系统</i><b class="mono" id="stOs">—</b></span>
-            <span><i>地址数</i><b class="mono" id="stCount">—</b></span>
+            <span><i id="kHost">主机名</i><b class="mono" id="stHost">—</b></span>
+            <span><i id="kOs">系统</i><b class="mono" id="stOs">—</b></span>
+            <span><i id="kCount">地址数</i><b class="mono" id="stCount">—</b></span>
           </div>
 
           <ul class="myip-list" id="ifList">
@@ -109,6 +109,14 @@ export default {
     const lanSubEl = wrap.querySelector('#lanSub');
     const ifList = wrap.querySelector('#ifList');
     const ifNote = wrap.querySelector('#ifNote');
+    const lanCell = wrap.querySelector('#lanCell');
+    const hero = wrap.querySelector('.myip-hero');
+    const kHost = wrap.querySelector('#kHost');
+    const kOs = wrap.querySelector('#kOs');
+    const kCount = wrap.querySelector('#kCount');
+    const stHost = wrap.querySelector('#stHost');
+    const stOs = wrap.querySelector('#stOs');
+    const stCount = wrap.querySelector('#stCount');
     const reloadBtn = wrap.querySelector('#reload');
 
     /* --------------------------- 本机网卡 / 出口 IP --------------------------- */
@@ -119,14 +127,37 @@ export default {
     }
 
     function renderInterfaces(d) {
-      wrap.querySelector('#stHost').textContent = d.hostname || '—';
-      wrap.querySelector('#stOs').textContent =
+      const all = d.interfaces || [];
+      // 云端运行（Cloudflare Workers）读不到本机网卡：隐藏内网区块，只保留公网出口
+      if (d.runtime === 'workers' || (d.platform === 'cloudflare' && !all.length)) {
+        lanCell.hidden = true;
+        hero.classList.add('single');
+        kHost.textContent = '运行环境';
+        kOs.textContent = '边缘节点';
+        kCount.textContent = '本机网卡';
+        stHost.textContent = 'Cloudflare Workers';
+        stOs.textContent = d.colo || '—';
+        stCount.textContent = '不可读取';
+        stCount.classList.remove('mono');
+        ifList.hidden = true;
+        ifNote.hidden = true;
+        return;
+      }
+      lanCell.hidden = false;
+      ifList.hidden = false;
+      hero.classList.remove('single');
+      kHost.textContent = '主机名';
+      kOs.textContent = '系统';
+      kCount.textContent = '地址数';
+      stCount.classList.add('mono');
+      stHost.textContent = d.hostname || '—';
+      stOs.textContent =
         `${OS_NAME[d.platform] || d.platform || ''} ${d.release || ''}`.trim() || '—';
 
-      const all = d.interfaces || [];
+
       const list = all.filter((x) => !x.internal);
       const shown = list.length ? list : all;
-      wrap.querySelector('#stCount').textContent = `${shown.length} 个`;
+      stCount.textContent = `${shown.length} 个`;
 
       // 主内网地址：优先私有 / CGNAT 的 IPv4
       const v4 = shown.filter((x) => x.family === 'IPv4');
@@ -187,29 +218,30 @@ export default {
     async function loadLocal() {
       reloadBtn.disabled = true;
       reloadBtn.classList.add('is-busy');
-      try {
-        const [local, pub] = await Promise.allSettled([
-          api('/api/net/localip', {}),
-          api('/api/net/ipinfo', { ip: '' }),
-        ]);
-        if (local.status === 'fulfilled' && local.value.ok) renderInterfaces(local.value.data);
-        else {
-          ifList.innerHTML = `<li class="myip-row muted">${esc(
-            local.status === 'fulfilled' ? local.value.error : local.reason.message
-          )}</li>`;
-        }
-        if (pub.status === 'fulfilled' && pub.value.ok) renderPublic(pub.value.data);
-        else {
-          pubIpEl.textContent = '检测失败';
-          pubBadgeEl.className = 'badge err';
+      // 两个请求互不等待：网卡信息通常毫秒级返回，公网归属地要走第三方接口
+      const localTask = api('/api/net/localip', {})
+        .then((r) => {
+          if (r.ok) renderInterfaces(r.data);
+          else ifList.innerHTML = `<li class="myip-row muted">${esc(r.error)}</li>`;
+        })
+        .catch((e) => {
+          ifList.innerHTML = `<li class="myip-row muted">${esc(e.message)}</li>`;
+        });
+      const pubTask = api('/api/net/ipinfo', { ip: '' })
+        .then((r) => {
+          if (r.ok) renderPublic(r.data);
+          else throw new Error(r.error);
+        })
+        .catch((e) => {
+          pubIpEl.textContent = '—';
+          pubBadgeEl.className = 'badge warn';
           pubBadgeEl.textContent = '出口未知';
           pubWhereEl.textContent = '';
-          pubMetaEl.textContent = pub.status === 'fulfilled' ? pub.value.error : pub.reason.message;
-        }
-      } finally {
-        reloadBtn.disabled = false;
-        reloadBtn.classList.remove('is-busy');
-      }
+          pubMetaEl.textContent = e.message;
+        });
+      await Promise.allSettled([localTask, pubTask]);
+      reloadBtn.disabled = false;
+      reloadBtn.classList.remove('is-busy');
     }
 
     reloadBtn.addEventListener('click', loadLocal);

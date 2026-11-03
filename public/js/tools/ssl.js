@@ -9,6 +9,7 @@ const STATUS_MAP = {
   mismatch: { cls: 'err', text: '证书与主机名不匹配' },
   selfsigned: { cls: 'warn', text: '自签名证书' },
   untrusted: { cls: 'err', text: '证书链不受信任' },
+  unknown: { cls: 'mute', text: '证书信息未知' },
 };
 
 /* 空值返回 -，其余交给通用格式化 */
@@ -35,7 +36,7 @@ export default {
       <section class="card">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>检测目标</div>
-          <div class="card-note">由本机服务端发起 TLS 握手，结果不落库</div>
+          <div class="card-note">由服务端发起检测，结果不落库</div>
         </div>
         <div class="card-body">
           <div class="field-row">
@@ -156,6 +157,23 @@ export default {
               <span class="spacer"></span>
               <span class="out-meta">解析 IP：${esc((d.resolved || []).join(', ') || '-')}</span>
             </div>
+            ${
+              d.mode === 'ct'
+                ? `<div class="row" style="gap:8px;margin-bottom:8px">
+                    <span class="badge ${d.live && d.live.ok ? 'ok' : 'err'}">${
+                      d.live && d.live.ok ? '实时可达' : '连接失败'
+                    }</span>
+                    <span class="note">${
+                      d.live && d.live.ok
+                        ? `TLS 握手正常 · HTTP ${d.live.status} · ${d.live.ms} ms`
+                        : esc((d.live && d.live.error) || '无法建立 TLS 连接')
+                    }</span>
+                  </div>
+                  <div class="note" style="margin-bottom:12px">证书信息取自公共 CT 日志（${esc(
+                    (d.ct && d.ct.source) || '未知来源'
+                  )}），未做实时握手，协议与加密套件不可用</div>`
+                : ''
+            }
             <div class="progress ${st.cls === 'ok' ? '' : st.cls}" style="margin-bottom:6px"><i style="width:${pct.toFixed(1)}%"></i></div>
             <div class="row" style="justify-content:space-between;font-size:12px;color:var(--muted)">
               <span>生效 ${fmtDT(d.notBefore)}</span><span>到期 ${fmtDT(d.notAfter)}</span>
@@ -181,7 +199,13 @@ export default {
               <tr><th>公钥</th><td class="mono">${esc(`${(leaf && leaf.publicKey && leaf.publicKey.type) || '-'} ${(leaf && leaf.publicKey && leaf.publicKey.bits) || ''} 位`)}</td></tr>
               <tr><th>密钥用法</th><td class="mono">${esc((leaf && leaf.keyUsage && leaf.keyUsage.join(', ')) || '-')}</td></tr>
               <tr><th>主机名校验</th><td>${d.hostMatch === null ? '<span class="muted">未知</span>' : d.hostMatch ? '<span class="badge ok">匹配</span>' : `<span class="badge err">不匹配（证书 CN/SAN 未包含 ${esc(d.host)}）</span>`}</td></tr>
-              <tr><th>信任链校验</th><td>${d.authorized ? '<span class="badge ok">通过</span>' : `<span class="badge err">未通过${d.authorizationError ? '：' + esc(d.authorizationError) : ''}</span>`}</td></tr>
+              <tr><th>信任链校验</th><td>${
+                d.authorized === null || d.authorized === undefined
+                  ? '<span class="muted">未知（云端未做链路校验）</span>'
+                  : d.authorized
+                  ? '<span class="badge ok">通过</span>'
+                  : `<span class="badge err">未通过${d.authorizationError ? '：' + esc(d.authorizationError) : ''}</span>`
+              }</td></tr>
               <tr><th>加密套件</th><td class="mono">${esc((d.cipher && d.cipher.name) || '-')} ${d.cipher && d.cipher.bits ? '(' + d.cipher.bits + ' bit)' : ''}</td></tr>
             </table>
             <div class="note mt12">备用名称 SAN（${dnsNames.length} 项）</div>
@@ -211,10 +235,27 @@ export default {
           <div class="card-head"><div class="card-title"><span class="dot"></span>TLS 协议支持</div></div>
           <div class="card-body">
             <div class="chips">${protoChips}</div>
-            <div class="mt8 out-meta">本次连接使用：${esc(d.protocol || '-')} · 套件 ${esc((d.cipher && d.cipher.name) || '-')}</div>
+            <div class="mt8 out-meta">${
+              d.mode === 'ct'
+                ? '云端模式未做逐版本握手探测，无法判断 TLS 1.0 / 1.1 支持情况'
+                : `本次连接使用：${esc(d.protocol || '-')} · 套件 ${esc((d.cipher && d.cipher.name) || '-')}`
+            }</div>
           </div>
         </section>
       `;
+
+      // 云端拿不到握手信息，逐版本探测没有意义
+      const probeBox = wrap.querySelector('#probe');
+      if (d.mode === 'ct') {
+        if (probeBox) {
+          probeBox.checked = false;
+          probeBox.disabled = true;
+          const lb = probeBox.closest('label');
+          if (lb) lb.title = '云端模式无法做逐版本 TLS 握手探测';
+        }
+      } else if (probeBox) {
+        probeBox.disabled = false;
+      }
 
       const fpBtn = resultEl.querySelector('#copyFp');
       if (fpBtn) fpBtn.addEventListener('click', () => copy((leaf && leaf.fingerprint256) || ''));
