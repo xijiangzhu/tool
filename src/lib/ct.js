@@ -19,7 +19,7 @@ export function certMatches(host, names) {
 const unescapeDn = (s) => String(s || '').replace(/\\([,+="<>;#])/g, '$1');
 
 /* 部分 CT 服务会拦掉默认 UA，统一带上可识别的标识 */
-const UA = { 'user-agent': 'ops-toolbox/1.0 (+https://github.com/xijiangzhu/tool)' };
+const UA = { 'user-agent': 'tool/1.0 (+https://github.com/xijiangzhu/tool)' };
 
 /** CT 日志只有 SAN 列表：取「匹配该主机名」的那个名字作为 CN */
 function bestName(host, names) {

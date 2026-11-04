@@ -1,7 +1,7 @@
 /* JSON 格式化 / 压缩 / 校验 */
 import { h, codeBox, fmtBytes, esc } from '../ui.js';
 
-const SAMPLE = `{"name":"ops-toolbox","version":1.2,"enabled":true,"tags":["json","format","yaml"],"owner":{"team":"sre","members":[{"name":"张三","role":"admin"},{"name":"李四","role":"viewer"}]},"note":"支持中文与转义"}`;
+const SAMPLE = `{"name":"tool","version":1.2,"enabled":true,"tags":["json","format","yaml"],"owner":{"team":"sre","members":[{"name":"张三","role":"admin"},{"name":"李四","role":"viewer"}]},"note":"支持中文与转义"}`;
 
 function parseWithPos(text) {
   try {

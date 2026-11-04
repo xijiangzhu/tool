@@ -4,7 +4,7 @@
 
 const API = 'https://api.ssllabs.com/api/v3';
 
-const UA = 'ops-toolbox/1.0 (+https://github.com/xijiangzhu/tool)';
+const UA = 'tool/1.0 (+https://github.com/xijiangzhu/tool)';
 
 async function apiGet(params, timeoutMs = 10000) {
   const res = await fetch(`${API}/analyze?${params}`, {

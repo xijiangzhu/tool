@@ -4,7 +4,7 @@ const enc = encodeURIComponent;
 
 async function getJson(url, ms = 6000, accept = 'application/json') {
   const res = await fetch(url, {
-    headers: { accept, 'user-agent': 'ops-toolbox/1.0' },
+    headers: { accept, 'user-agent': 'tool/1.0' },
     signal: AbortSignal.timeout(ms),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -334,7 +334,7 @@ async function liveProbe(host, port, timeoutMs = 9000) {
     const res = await fetch(`https://${host}:${port}/`, {
       method: 'GET',
       redirect: 'manual',
-      headers: { 'user-agent': 'ops-toolbox/1.0', accept: '*/*' },
+      headers: { 'user-agent': 'tool/1.0', accept: '*/*' },
       signal: AbortSignal.timeout(timeoutMs),
     });
     try {
