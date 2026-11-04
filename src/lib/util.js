@@ -112,13 +112,6 @@ export function ipScope(ip) {
   return { kind: 'unknown', label: '未知' };
 }
 
-/** IPv4 → 十进制整数（部分日志与防火墙规则使用） */
-export function ipv4ToInt(ip) {
-  if (!isIPv4(ip)) return null;
-  const p = ip.split('.').map(Number);
-  return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
-}
-
 /** IPv4 / IPv6 反查域名（in-addr.arpa / ip6.arpa） */
 export function reverseName(ip) {
   if (isIPv4(ip)) return ip.split('.').reverse().join('.') + '.in-addr.arpa';

@@ -109,11 +109,10 @@ async function myIpInfo(force = false) {
     d = r4.ok && r4.data
       ? { ...r4.data, altV6: serverV6 }
       : {
-          // 二次查询失败时不能沿用 IPv6 的归属地 / PTR / 十进制等字段
+          // 二次查询失败时不能沿用 IPv6 的归属地 / PTR 等字段
           ip: v4,
           version: 'IPv4',
           scope: null,
-          decimal: null,
           ptr: null,
           geo: null,
           elapsed: Date.now() - started,
@@ -165,15 +164,9 @@ export default {
           </div>
         </div>
         <div class="card-body">
-          <div class="myip-hero">
-            <div class="myip-item">
-              <div class="myip-label">公网出口 IP<span class="badge ok" id="pubBadge">公网地址</span></div>
-              <div class="myip-ip mono" id="pubIp">检测中…</div>
-              <div class="myip-sub" id="pubWhere">—</div>
-              <div class="myip-sub dim" id="pubMeta"></div>
-            </div>
+          <div id="pubOut">
+            <div class="empty">正在检测本机公网出口…</div>
           </div>
-          <div class="ip-kv ipq-kv mt8" id="pubKv"></div>
         </div>
       </section>
     `);
@@ -183,55 +176,71 @@ export default {
     const qErr = formError(wrap.querySelector('.ipq-search'), wrap.querySelector('.ipq-search'));
     const goBtn = wrap.querySelector('#go');
     const outEl = wrap.querySelector('#out');
-    const pubIpEl = wrap.querySelector('#pubIp');
-    const pubBadgeEl = wrap.querySelector('#pubBadge');
-    const pubWhereEl = wrap.querySelector('#pubWhere');
-    const pubMetaEl = wrap.querySelector('#pubMeta');
-    const pubKvEl = wrap.querySelector('#pubKv');
+    const pubOutEl = wrap.querySelector('#pubOut');
     const reloadBtn = wrap.querySelector('#reload');
 
-    function renderKv(el, rows) {
-      el.innerHTML = rows
+    /** 两张卡片共用的键值网格 */
+    function kvGrid(rows) {
+      return `<div class="ip-kv ipq-kv">${rows
         .map(
           ([k, v]) =>
             `<div class="ip-kv-item"><div class="ip-kv-label">${esc(k)}</div><div class="ip-kv-value mono" title="${esc(
               v
             )}">${esc(v)}</div></div>`
         )
-        .join('');
+        .join('')}</div>`;
     }
 
+    /** 复制按钮行：复制 IP / 复制详情 */
+    function copyRow(el, d, rows) {
+      const row = h(`<div class="btn-row mt12">
+          <button class="btn btn-sm" data-act="ip">复制 IP</button>
+          <button class="btn btn-sm btn-ghost" data-act="all">复制详情</button>
+        </div>`);
+      el.appendChild(row);
+      row.querySelector('[data-act="ip"]').addEventListener('click', () => copy(d.ip || ''));
+      row.querySelector('[data-act="all"]').addEventListener('click', () =>
+        copy(
+          [
+            `IP：${d.ip || ''}${d.from ? `（来自 ${d.from}）` : ''}`,
+            ...rows.map(([k, v]) => `${k}：${v}`),
+          ].join('\n'),
+          '已复制查询详情'
+        )
+      );
+    }
+
+    /** 「我的 IP 信息」卡片：与上方 IP 查询结果同一套版式 */
     function renderPublic(d) {
       const g = d.geo;
       if (!d.ip) {
-        pubIpEl.textContent = '未检测到';
-        pubBadgeEl.className = 'badge warn';
-        pubBadgeEl.textContent = '出口未知';
-        pubWhereEl.textContent = '';
-        pubMetaEl.textContent = '';
-        pubKvEl.innerHTML = '';
+        pubOutEl.innerHTML = '<div class="empty">未检测到公网出口 IP</div>';
         return;
       }
-      pubIpEl.textContent = d.ip;
-      pubBadgeEl.className = 'badge ok';
-      pubBadgeEl.textContent = d.version || '未知';
-      pubWhereEl.textContent = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
-      let meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
-      if (d.altV6) meta += ' · 已优先显示 IPv4，IPv6 出口见下方';
-      else if (d.version === 'IPv6') meta += ' · 未取到 IPv4 出口，可点刷新重试';
-      pubMetaEl.textContent = meta;
-
+      const loc = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
       const rows = [
+        ['归属地', loc || '—'],
         ['运营商', (g && g.isp) || '—'],
         ['ASN / 组织', asnText(g)],
         ['时区', (g && g.timezone) || '—'],
         ['经纬度', coordText(g)],
         ['反向解析', d.ptr || '—'],
         ['IP 类型', d.scope ? d.scope.label : '—'],
-        ['十进制', d.decimal != null ? String(d.decimal) : '—'],
       ];
       if (d.altV6) rows.push(['IPv6 出口', d.altV6]);
-      renderKv(pubKvEl, rows);
+      let meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
+      if (d.altV6) meta += ' · 已优先显示 IPv4';
+      else if (d.version === 'IPv6') meta += ' · 未取到 IPv4 出口，可点刷新重试';
+      const badge = d.scope && d.scope.kind === 'public' ? 'ok' : 'warn';
+      pubOutEl.innerHTML = `
+        <div class="ipq-head">
+          <span class="ipq-ip mono">${esc(d.ip)}</span>
+          <span class="badge ${badge}">${esc(d.scope ? d.scope.label : '未知')}</span>
+          <span class="muted">${esc(loc)}</span>
+          <span class="spacer"></span>
+          <span class="muted">${esc(meta)}</span>
+        </div>` + kvGrid(rows);
+      copyRow(pubOutEl, d, rows);
     }
 
     async function loadMine(force = false) {
@@ -240,12 +249,7 @@ export default {
       try {
         renderPublic(await myIpInfo(force));
       } catch (e) {
-        pubIpEl.textContent = '—';
-        pubBadgeEl.className = 'badge warn';
-        pubBadgeEl.textContent = '出口未知';
-        pubWhereEl.textContent = '';
-        pubMetaEl.textContent = e.message;
-        pubKvEl.innerHTML = '';
+        pubOutEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {
         reloadBtn.disabled = false;
         reloadBtn.classList.remove('is-busy');
@@ -265,9 +269,9 @@ export default {
         ['时区', (g && g.timezone) || '—'],
         ['经纬度', coordText(g)],
         ['反向解析', d.ptr || '—'],
-        [d.version === 'IPv4' ? '十进制' : '地址类型', d.decimal != null ? String(d.decimal) : d.version || '—'],
         ['IP 类型', d.scope ? d.scope.label : '—'],
       ];
+      if (d.version === 'IPv6') kv.push(['地址类型', 'IPv6']);
       const badge = d.scope && d.scope.kind === 'public' ? 'ok' : 'warn';
       const head = `
         <div class="ipq-head">
@@ -278,34 +282,12 @@ export default {
           <span class="spacer"></span>
           <span class="muted">${esc((g && g.provider) || '归属地信息不可用')} · ${d.elapsed} ms</span>
         </div>`;
-      const grid = `<div class="ip-kv ipq-kv">${kv
-        .map(
-          ([k, v]) =>
-            `<div class="ip-kv-item"><div class="ip-kv-label">${esc(k)}</div><div class="ip-kv-value mono" title="${esc(
-              v
-            )}">${esc(v)}</div></div>`
-        )
-        .join('')}</div>`;
       const extra =
         !g && d.scope && d.scope.kind !== 'public'
           ? '<div class="hint">该地址属于内网 / 保留网段，没有公网归属地信息。</div>'
           : '';
-      const acts = `<div class="btn-row mt12">
-          <button class="btn btn-sm" data-act="ip">复制 IP</button>
-          <button class="btn btn-sm btn-ghost" data-act="all">复制详情</button>
-        </div>`;
-      outEl.innerHTML = head + grid + extra + acts;
-
-      outEl.querySelector('[data-act="ip"]').addEventListener('click', () => copy(d.ip || ''));
-      outEl.querySelector('[data-act="all"]').addEventListener('click', () =>
-        copy(
-          [
-            `IP：${d.ip || ''}${d.from ? `（来自 ${d.from}）` : ''}`,
-            ...kv.map(([k, v]) => `${k}：${v}`),
-          ].join('\n'),
-          '已复制查询详情'
-        )
-      );
+      outEl.innerHTML = head + kvGrid(kv) + extra;
+      copyRow(outEl, d, kv);
     }
 
     let running = false;

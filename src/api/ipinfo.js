@@ -1,7 +1,7 @@
 /* IP 地址查询：任意 IP / 域名 → 归属地、运营商、ASN、时区、反向解析；
    留空则查询调用方出口 IP（云端用 cf-connecting-ip，本地由第三方按出口识别）。 */
 import { geoLookup } from '../lib/geo.js';
-import { isIP, ipScope, ipv4ToInt, isPrivateHost } from '../lib/util.js';
+import { isIP, ipScope, isPrivateHost } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
 /* 仅 A / 仅 AAAA 的出口查询地址：显式按地址族探测，
@@ -84,7 +84,6 @@ export async function ipinfo(input, ctx) {
     from,
     version: ip ? (isIP(ip) === 6 ? 'IPv6' : 'IPv4') : null,
     scope: ip ? ipScope(ip) : null,
-    decimal: ipv4ToInt(ip),
     ptr,
     geo,
     altV6,
