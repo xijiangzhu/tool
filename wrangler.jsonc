@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ops-toolbox",
+  "name": "tool",
   // 与 Node 共用同一个入口：导出的都是 { fetch(request, env, ctx) }
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
