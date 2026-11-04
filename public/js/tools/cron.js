@@ -163,7 +163,7 @@ export default {
     const editTagEl = wrap.querySelector('#editTag');
 
     const fieldOf = (key) => FIELDS.find((f) => f.key === key);
-    const label = (v, f) => (f.labels ? f.labels[v] : String(v));
+    const label = (v, f) => (f.labels ? f.labels[v - f.min] : String(v));
 
     function fieldValue(f) {
       const s = state[f.key];
@@ -218,19 +218,30 @@ export default {
       let dayTxt = '';
       if (dom !== '*') dayTxt = listText(dom, FIELDS[2], '号');
       if (dow !== '*') {
-        const wt = dow.includes(',')
+        const wt = dow.startsWith('*/')
+          ? `星期字段每隔 ${dow.slice(2)} 个取值（${Array.from({ length: 7 }, (_, i) => i)
+              .filter((i) => i % Number(dow.slice(2)) === 0)
+              .map((i) => WEEKDAYS[i])
+              .join('、')}）`
+          : dow.includes(',')
           ? dow.split(',').map((x) => WEEKDAYS[Number(x)]).join('、')
           : dow.includes('-')
           ? `${WEEKDAYS[Number(dow.split('-')[0])]} 至 ${WEEKDAYS[Number(dow.split('-')[1])]}`
           : WEEKDAYS[Number(dow)];
         dayTxt = dayTxt ? `${dayTxt} 且 ${wt}` : wt;
       }
-      if (mon !== '*') dayTxt += (dayTxt ? '（' : '') + listText(mon, FIELDS[3], '月') + (dayTxt ? '）' : '');
+      if (mon !== '*') dayTxt += (dayTxt ? '（' : '') + listText(mon, FIELDS[3], '') + (dayTxt ? '）' : '');
 
       let timeTxt;
       if (min === '*' && hour === '*') timeTxt = '每分钟';
       else if (hour === '*') timeTxt = min.startsWith('*/') ? `每 ${min.slice(2)} 分钟` : `每小时的第 ${min.includes(',') ? min.split(',').join('、') : min} 分`;
       else if (min === '*') timeTxt = `${hour} 点的每分钟`;
+      else if (min.startsWith('*/')) {
+        const hours = hour.split(',').map(Number);
+        const hourTxt = hours.map((v) => `${pad2(v)} 点`).join('、');
+        const invalidHour = hours.some((v) => v < 0 || v > 23);
+        timeTxt = `${hourTxt}每隔 ${min.slice(2)} 分钟${invalidHour ? '（小时值超出 0–23）' : ''}`;
+      }
       else {
         const hv = hour.includes(',') ? hour.split(',').map((x) => pad2(x)).join('、') : hour;
         timeTxt = `${hv}:${pad2(min)}`;
