@@ -132,10 +132,13 @@ export default {
       })
     );
 
-    function render(d, total = d.scanned, scanning = false) {
+    function render(d, total = d.scanned, scanning = false, batch = []) {
       metaEl.textContent = scanning
-        ? `已完成 ${d.scanned} / ${total} 个端口 · 扫描中`
+        ? ''
         : `${d.scanned} 个端口 · ${(d.elapsed / 1000).toFixed(1)} s · 单端口超时 ${d.timeout} ms`;
+      const progress = scanning
+        ? `<div class="empty">正在扫描：${d.scanned} / ${total} 个端口，已发现 ${d.open.length} 个开放端口…<br><span class="mono">本批端口：${batch.join(', ')}</span></div>`
+        : '';
       const stats = `
         <div class="grid grid-3">
           <div class="stat"><div class="stat-label">扫描端口数</div><div class="stat-value mono">${d.scanned}</div></div>
@@ -161,7 +164,7 @@ export default {
         ? '<div class="empty mt12">暂未发现开放端口，继续扫描中…</div>'
         : '<div class="alert ok mt12">未发现开放端口（可能全部被防火墙过滤，或超时时间过短）</div>';
 
-      outEl.innerHTML = `${stats}
+      outEl.innerHTML = `${progress}${stats}
         <div class="note mt12">目标地址：<span class="mono">${esc(d.target)}</span>${d.target !== d.host ? `（${esc(d.host)}）` : ''}</div>
         ${body}`;
     }
@@ -194,7 +197,7 @@ export default {
           combined.open.push(...r.data.open);
           combined.elapsed += r.data.elapsed;
           // 每 6 个端口一批返回后立即刷新；已开放端口会在下一批开始前显示
-          render(combined, ports.length, true);
+          render(combined, ports.length, true, batch);
         }
         combined.open.sort((a, b) => a.port - b.port);
         render(combined);
