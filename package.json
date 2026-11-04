@@ -1,5 +1,5 @@
 {
-  "name": "ops-toolbox",
+  "name": "tool",
   "version": "2.0.0",
   "description": "运维工具箱：网络工具 / 时间与调度 / 格式化与预览 / 编码转换，13 个工具；同一套代码可跑在 Node 与 Cloudflare Workers",
   "private": true,
@@ -15,7 +15,7 @@
   },
   "keywords": [
     "ops",
-    "toolbox",
+    "tool",
     "dns",
     "ssl",
     "cloudflare-workers"
