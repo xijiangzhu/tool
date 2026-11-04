@@ -82,15 +82,6 @@ export default {
             <div id="editor" style="padding:0 6px"></div>
             <div style="padding:0 6px">
               <div class="out-box">
-                <div class="out-bar">
-                  <span class="out-title" id="viewTitle">预览</span>
-                  <span class="out-actions">
-                    <div class="seg" id="tab">
-                      <button data-v="preview" class="active">预览</button>
-                      <button data-v="html">HTML</button>
-                    </div>
-                  </span>
-                </div>
                 <div class="out-body" id="viewer" style="height:var(--md-h);resize:none"></div>
               </div>
             </div>
@@ -105,7 +96,21 @@ export default {
 
     const editor = codeBox({ height: 'var(--md-h)', placeholder: '在此输入 Markdown…' });
     wrap.querySelector('#editor').appendChild(editor.el);
+    const tab = h(`<div class="seg" id="tab"><button data-v="preview" class="active">预览</button><button data-v="html">HTML</button></div>`);
+    editor.el.querySelector('.out-actions').prepend(tab);
     const viewer = wrap.querySelector('#viewer');
+    const editorScroll = editor.el.querySelector('.out-body');
+    let syncingScroll = false;
+    function syncScroll(source, target) {
+      if (syncingScroll) return;
+      syncingScroll = true;
+      const sourceMax = source.scrollHeight - source.clientHeight;
+      const targetMax = target.scrollHeight - target.clientHeight;
+      target.scrollTop = sourceMax > 0 ? (source.scrollTop / sourceMax) * Math.max(0, targetMax) : 0;
+      requestAnimationFrame(() => { syncingScroll = false; });
+    }
+    editorScroll.addEventListener('scroll', () => syncScroll(editorScroll, viewer), { passive: true });
+    viewer.addEventListener('scroll', () => syncScroll(viewer, editorScroll), { passive: true });
     const statsEl = wrap.querySelector('#stats');
 
     let currentHtml = '';
@@ -147,14 +152,12 @@ export default {
         : '0 字 · 0 行';
 
       if (tab === 'preview') {
-        wrap.querySelector('#viewTitle').textContent = '预览';
         viewer.innerHTML = md.trim()
           ? '<div class="md-body" style="padding:14px 16px;min-height:100%"></div>'
           : '<div class="md-empty" style="min-height:100%">点击左侧输入框，直接开始写 Markdown</div>';
         if (md.trim()) viewer.querySelector('.md-body').innerHTML = html;
         highlightBlocks(viewer);
       } else if (tab === 'html') {
-        wrap.querySelector('#viewTitle').textContent = 'HTML 源码';
         const pre = document.createElement('pre');
         pre.className = 'code language-markup';
         pre.style.cssText = 'height:100%;margin:0;border:0;border-radius:0;background:transparent';
@@ -178,7 +181,7 @@ export default {
       timer = setTimeout(render, 180);
     });
 
-    segGroup(wrap.querySelector('#tab'), (v) => {
+    segGroup(tab, (v) => {
       tab = v;
       render();
     });
