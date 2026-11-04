@@ -1,7 +1,7 @@
 {
   "name": "ops-toolbox",
   "version": "2.0.0",
-  "description": "运维工具箱：网络工具 / 时间与调度 / 格式化与预览 / 编码转换，14 个工具；同一套代码可跑在 Node 与 Cloudflare Workers",
+  "description": "运维工具箱：网络工具 / 时间与调度 / 格式化与预览 / 编码转换，13 个工具；同一套代码可跑在 Node 与 Cloudflare Workers",
   "private": true,
   "type": "module",
   "main": "src/index.js",
@@ -25,9 +25,9 @@
   "dependencies": {},
   "devDependencies": {
     "dompurify": "^3.4.17",
-    "js-yaml": "^5.5.0",
     "marked": "^18.1.2",
     "prismjs": "^1.30.0",
     "wrangler": "^4.156.2"
   }
 }
+

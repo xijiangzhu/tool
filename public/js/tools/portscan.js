@@ -3,6 +3,7 @@ import { h, esc, api, remember, setBusy, formError } from '../ui.js';
 
 /* 端口数上限：本地与云端一致（云端并发只有 6，大范围扫描会慢，但不限数量） */
 const MAX_PORTS = 2000;
+const BATCH_SIZE = 120;
 
 const COMMON =
   '21,22,23,25,53,80,110,111,123,135,139,143,161,389,443,445,465,514,587,636,873,993,995,1080,1433,1521,1723,2049,2181,2375,3000,3306,3389,5000,5432,5601,5672,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9200,9300,11211,27017';
@@ -108,6 +109,18 @@ export default {
       return ports.size;
     }
 
+    function expandPorts(s) {
+      const ports = new Set();
+      for (const part of String(s).split(/[\s,]+/)) {
+        const t = part.trim();
+        if (!t) continue;
+        const m = /^(\d+)-(\d+)$/.exec(t);
+        if (m) for (let p = Number(m[1]); p <= Number(m[2]); p++) ports.add(p);
+        else ports.add(Number(t));
+      }
+      return [...ports].sort((a, b) => a - b);
+    }
+
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
       c.addEventListener('click', () => {
         const n = portCount(c.dataset.v);
@@ -165,13 +178,21 @@ export default {
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';
       metaEl.textContent = '';
       try {
-        const r = await api('/api/net/portscan', {
-          host,
-          ports: portsStr,
-          timeout: Number(wrap.querySelector('#timeout').value),
-        });
-        if (!r.ok) throw new Error(r.error);
-        render(r.data);
+        const ports = expandPorts(portsStr);
+        const combined = { host, target: host, scanned: 0, open: [], elapsed: 0, timeout: Number(wrap.querySelector('#timeout').value) };
+        for (let i = 0; i < ports.length; i += BATCH_SIZE) {
+          const batch = ports.slice(i, i + BATCH_SIZE);
+          const r = await api('/api/net/portscan', { host, ports: batch.join(','), timeout: combined.timeout });
+          if (!r.ok) throw new Error(r.error);
+          combined.target = r.data.target;
+          combined.scanned += r.data.scanned;
+          combined.open.push(...r.data.open);
+          combined.elapsed += r.data.elapsed;
+          metaEl.textContent = `已完成 ${combined.scanned} / ${ports.length} 个端口`;
+          outEl.innerHTML = `<div class="empty">正在扫描：${combined.scanned} / ${ports.length} 个端口，已发现 ${combined.open.length} 个开放端口…</div>`;
+        }
+        combined.open.sort((a, b) => a.port - b.port);
+        render(combined);
       } catch (e) {
         outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {

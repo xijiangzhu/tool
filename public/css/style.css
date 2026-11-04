@@ -27,7 +27,6 @@
      各页头部结构不同，故用各自的扣减常量换取相同的底部间距；
      下限取小值，保证 1280×760 / 1024×700 等小屏也不会撑出纵向滚动 */
   --json-h: clamp(300px, calc(100vh - 349px), 1600px);
-  --yaml-h: clamp(300px, calc(100vh - 349px), 1600px);
   --md-h: clamp(320px, calc(100vh - 343px), 1600px);
   --diff-h: clamp(320px, calc(100vh - 317px), 1600px);
   --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .05);
@@ -1055,7 +1054,7 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   letter-spacing: .01em;
   word-break: break-all;
 }
-.ip-cidr span { font-size: 18px; color: var(--accent-2); }
+.ip-cidr span { font-size: inherit; color: var(--accent-2); }
 .ip-kv {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1418,7 +1417,6 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   :root {
     --head-h: 60px;
     --json-h: 300px;
-    --yaml-h: 300px;
     --md-h: 330px;
     --diff-h: 380px;
   }
@@ -1586,7 +1584,7 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 }
 
 @media (max-width: 560px) {
-  :root { --json-h: 260px; --yaml-h: 260px; --md-h: 300px; --diff-h: 520px; }
+  :root { --json-h: 260px; --md-h: 300px; --diff-h: 520px; }
 
   .page-side { display: none; }
   .page-title { font-size: 14.5px; }

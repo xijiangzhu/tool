@@ -7,7 +7,6 @@ import json from './tools/json.js';
 import cron from './tools/cron.js';
 import timestamp from './tools/timestamp.js';
 import urlTool from './tools/url.js';
-import yamljson from './tools/yamljson.js';
 import markdown from './tools/markdown.js';
 import diffTool from './tools/diff.js';
 import ssl from './tools/ssl.js';
@@ -29,7 +28,6 @@ const ICONS = {
   cron: svg('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>'),
   timestamp: svg('<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 15l2 2 4-4"/>'),
   url: svg('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
-  yamljson: svg('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'),
   markdown: svg('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l2.5 3L11 9v6M15 9v6M15 12l2.5-3L20 12v3"/>'),
   diff: svg('<rect x="3" y="4" width="7.2" height="16" rx="1.8"/><rect x="13.8" y="4" width="7.2" height="16" rx="1.8"/><path d="M5.4 9.5h2.4M5.4 13h2.4M16.2 9.5h2.4M16.2 13h2.4M16.2 16.5h2.4"/>'),
   ssl: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'),
@@ -51,7 +49,6 @@ const TOOLS = [
   diffTool,
   base64,
   urlTool,
-  yamljson,
 ];
 TOOLS.forEach((t) => (t.icon = ICONS[t.id] || ICONS.json));
 
