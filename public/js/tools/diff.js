@@ -322,7 +322,7 @@ export default {
   id: 'diff',
   name: '文件差异对比',
   group: '格式化与预览',
-  desc: '逐行比较两份文本，差异直接标在原文件与新文件的行上，两侧共用一条滚动条',
+  desc: '逐行比较两份文本，差异直接标在原文件与新文件的行上，两侧独立滚动并实时同步',
   keywords: 'diff 差异 对比 比较 patch 文件 git 合并',
   mount(root) {
     root.innerHTML = '';
@@ -419,15 +419,32 @@ export default {
     const igWs = wrap.querySelector('#igWs');
     const igCase = wrap.querySelector('#igCase');
 
-    /* overscroll-behavior:contain 在框内无可滚内容时会吞掉页面滚轮，
-       仅在结果区真正可滚时启用（与 ui.js codeBox 同一策略） */
+    /* 两侧各自的纵向滚动容器：滚动条各自可见，滚动位置实时同步 */
+    const vScrollA = taA.closest('.diff-code');
+    const vScrollB = taB.closest('.diff-code');
+    const vScrolls = [vScrollA, vScrollB];
+    let vsyncing = false;
+    vScrolls.forEach((el, i) => {
+      el.addEventListener('scroll', () => {
+        if (vsyncing) return;
+        vsyncing = true;
+        const other = vScrolls[1 - i];
+        if (Math.abs(other.scrollTop - el.scrollTop) > 0.5) other.scrollTop = el.scrollTop;
+        vsyncing = false;
+      });
+    });
+
+    /* overscroll-behavior:contain 在无可滚内容时会吞掉页面滚轮，
+       仅在窗格真正可滚时启用（与 ui.js codeBox 同一策略） */
     const syncContain = () => {
-      scrollEl.style.overscrollBehavior =
-        scrollEl.scrollHeight > scrollEl.clientHeight + 1 ? 'contain' : 'auto';
+      vScrolls.forEach((el) => {
+        el.style.overscrollBehavior =
+          el.scrollHeight > el.clientHeight + 1 ? 'contain' : 'auto';
+      });
     };
     if (typeof ResizeObserver === 'function') {
       const ro = new ResizeObserver(syncContain);
-      ro.observe(scrollEl);
+      vScrolls.forEach((el) => ro.observe(el));
     }
 
     let fileA = '';
@@ -481,13 +498,12 @@ export default {
 
     /* 内容较少时把可编辑区撑满容器，点击任意位置都能直接输入 */
     function fitHeights() {
-      const headEl = wrap.querySelector('.diff-pane-head');
-      const headH = headEl ? headEl.offsetHeight : 38;
-      const base = Math.max(160, scrollEl.clientHeight - headH);
+      const base = Math.max(160, vScrollA.clientHeight);
       [taA, taB].forEach((ta) => {
         const own = Number(ta.dataset.contentH) || 0;
         ta.style.height = `${Math.max(own, base)}px`;
       });
+      syncContain();
     }
 
     /* 按字符宽度估算是否需要横向平移（两栏等宽，平移由下方共用横条驱动） */
@@ -574,9 +590,9 @@ export default {
       if (!blocks.length) return;
       navIdx = (i + blocks.length) % blocks.length;
       const blk = blocks[navIdx];
-      const headH = wrap.querySelector('.diff-pane-head').offsetHeight || 38;
       const ln = blk.a || blk.b || 1;
-      scrollEl.scrollTop = Math.max(0, PAD + (ln - 1) * LH - headH - 4);
+      const target = Math.max(0, PAD + (ln - 1) * LH - 4);
+      vScrolls.forEach((el) => (el.scrollTop = target));
       navInfo.textContent = `第 ${navIdx + 1} / ${blocks.length} 处`;
     }
 

@@ -4,10 +4,6 @@ import { h, esc, api, remember, setBusy, formError } from '../ui.js';
 /* 端口数上限：本地与云端一致（云端并发只有 6，大范围扫描会慢，但不限数量） */
 const MAX_PORTS = 2000;
 
-/* 开放状态的绿色对勾图标 */
-const OPEN_ICON =
-  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-
 const COMMON =
   '21,22,23,25,53,80,110,111,123,135,139,143,161,389,443,445,465,514,587,636,873,993,995,1080,1433,1521,1723,2049,2181,2375,3000,3306,3389,5000,5432,5601,5672,5900,6379,7001,8000,8080,8081,8443,8888,9000,9090,9200,9300,11211,27017';
 
@@ -87,7 +83,7 @@ export default {
     const btn = wrap.querySelector('#run');
 
     wrap.querySelector('#portHint').textContent =
-      `单次最多 ${MAX_PORTS} 个端口，支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。`;
+      `单次最多 ${MAX_PORTS} 个端口，支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。注意：部分防火墙会对同源 IP 的高频连接做限速丢包，大范围扫描可能漏报开放端口，有疑问时可用小范围端口重扫验证。`;
 
     /** 统计端口写法覆盖的端口数：'80,443' → 2，'1-1024' → 1024；写法非法返回 NaN */
     function portCount(s) {
@@ -141,7 +137,7 @@ export default {
                   <td class="mono"><b>${p.port}</b></td>
                   <td>${esc(p.service || '未知服务')}</td>
                   <td class="mono">${p.ms} ms</td>
-                  <td><span class="badge ok" title="端口可连接">${OPEN_ICON}open</span></td>
+                  <td><span class="badge ok" title="端口可连接">open</span></td>
                 </tr>`
               )
               .join('')}

@@ -1123,24 +1123,29 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 
 /* ---------------------------- 文件差异对比 ------------------------------- */
 
-/* 两侧共用一条纵向滚动条；两栏始终等宽，超长行由下方共用的横向滚动条统一平移 */
+/* 两侧各自独立纵向滚动（滚动条各自可见），JS 保证两侧滚动位置同步；
+   超长行仍由下方共用的横向滚动条统一平移 */
 .diff-scroll {
   height: var(--diff-h);
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
-  overscroll-behavior: contain;
 }
+/* 两栏之间留出明显的灰色分隔条：底色槽 + 居中一条竖向分界线 */
 .diff-inputs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  height: 100%;
   min-width: 100%;
-  min-height: 100%;
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--muted), var(--muted));
+  background-size: 2px 100%;
+  background-position: center top;
+  background-repeat: no-repeat;
 }
-.diff-pane { display: flex; flex-direction: column; min-width: 0; }
-.diff-pane + .diff-pane { border-left: 1px solid var(--border); }
+.diff-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
 
 .diff-pane-head {
   position: sticky;
@@ -1182,12 +1187,14 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 }
 .diff-nav .muted { font-size: 12px; min-width: 66px; }
 
-/* 行号槽 + 行背景 + 透明输入层 */
+/* 行号槽 + 行背景 + 透明输入层；纵向滚动由每个窗格自己的滚动条负责 */
 .diff-code {
   display: grid;
   grid-template-columns: 50px minmax(0, 1fr);
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--panel);
 }
 .diff-nums {
@@ -1322,12 +1329,13 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 
 /* -------------------------------- IP 查询 -------------------------------- */
 
-/* 查询窗口：图标 + 无边框输入框 + 按钮，整体作为一个描边容器 */
+/* 查询窗口：图标 + 无边框输入框 + 按钮，整体作为一个描边容器；总高度与其他表单行一致 */
 .ipq-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 12px;
+  height: var(--ctl-h);
+  padding: 0 3px 0 12px;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--panel);
@@ -1339,13 +1347,13 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
-  height: 32px;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
 }
 .ipq-search input:focus { border: 0; box-shadow: none; }
-.ipq-search .btn { flex: 0 0 auto; }
+.ipq-search .btn { flex: 0 0 auto; height: calc(var(--ctl-h) - 8px); }
 .ipq-head {
   display: flex;
   align-items: center;
@@ -1570,8 +1578,8 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   .kv-row { flex-wrap: wrap; }
   .kv-row input { flex: 1 1 100%; min-width: 0; }
   .kv-del { flex: 0 0 auto; }
-  .ipq-search { padding: 6px 6px 6px 11px; }
-  .ipq-search input { flex: 1 1 auto; height: 34px; }
+  .ipq-search { height: var(--ctl-h); padding: 0 6px 0 11px; }
+  .ipq-search input { flex: 1 1 auto; height: 100%; }
   .ipq-search .btn { flex: 0 0 auto; padding: 0 14px; }
   .cron-hero-parse { flex-wrap: wrap; }
   .cron-hero-parse input { width: 100%; }

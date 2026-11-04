@@ -80,12 +80,19 @@ export default {
           </div>
           <div class="split">
             <div id="editor" style="padding:0 6px"></div>
-            <div>
-              <div class="seg" style="margin:0 0 10px" id="tab">
-                <button data-v="preview" class="active">预览</button>
-                <button data-v="html">HTML</button>
+            <div style="padding:0 6px">
+              <div class="out-box">
+                <div class="out-bar">
+                  <span class="out-title" id="viewTitle">预览</span>
+                  <span class="out-actions">
+                    <div class="seg" id="tab">
+                      <button data-v="preview" class="active">预览</button>
+                      <button data-v="html">HTML</button>
+                    </div>
+                  </span>
+                </div>
+                <div class="out-body" id="viewer" style="height:var(--md-h);resize:none"></div>
               </div>
-              <div id="viewer"></div>
             </div>
           </div>
           <div class="row" style="padding:10px 6px 0">
@@ -140,16 +147,28 @@ export default {
         : '0 字 · 0 行';
 
       if (tab === 'preview') {
+        wrap.querySelector('#viewTitle').textContent = '预览';
         viewer.innerHTML = md.trim()
-          ? `<div class="md-body" style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);height:var(--md-h);overflow:auto">${html}</div>`
-          : '<div class="md-empty" style="min-height:var(--md-h)">点击左侧输入框，直接开始写 Markdown</div>';
+          ? '<div class="md-body" style="padding:14px 16px;min-height:100%"></div>'
+          : '<div class="md-empty" style="min-height:100%">点击左侧输入框，直接开始写 Markdown</div>';
+        if (md.trim()) viewer.querySelector('.md-body').innerHTML = html;
         highlightBlocks(viewer);
       } else if (tab === 'html') {
-        const box = codeBox({ lang: 'markup', height: 'var(--md-h)' });
-        box.setValue(html);
+        wrap.querySelector('#viewTitle').textContent = 'HTML 源码';
+        const pre = document.createElement('pre');
+        pre.className = 'code language-markup';
+        pre.style.cssText = 'height:100%;margin:0;border:0;border-radius:0;background:transparent';
+        const code = document.createElement('code');
+        code.className = 'language-markup';
+        code.textContent = html;
+        pre.appendChild(code);
         viewer.innerHTML = '';
-        viewer.appendChild(box.el);
-        box.el.querySelector('[data-act="hl"]').click();
+        viewer.appendChild(pre);
+        if (window.Prism && window.Prism.languages.markup) {
+          try {
+            window.Prism.highlightElement(code);
+          } catch (_) {}
+        }
       }
     }
 

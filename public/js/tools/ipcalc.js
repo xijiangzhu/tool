@@ -1,5 +1,5 @@
 /* IP 子网计算器 */
-import { h, copy, esc, fmtNum, remember } from '../ui.js';
+import { h, copy, esc, fmtNum, remember, formError } from '../ui.js';
 
 const QUICK = ['192.168.1.0/24', '10.0.0.0/8', '172.16.0.0/12', '192.168.10.5/26'];
 
@@ -95,7 +95,6 @@ export default {
           <div class="chips mt10">
             ${QUICK.map((q) => `<span class="chip" data-v="${esc(q)}">${esc(q)}</span>`).join('')}
           </div>
-          <div id="msg"></div>
         </div>
       </section>
       <div id="out"></div>
@@ -104,9 +103,10 @@ export default {
     root.appendChild(wrap);
 
     const outEl = wrap.querySelector('#out');
-    const msgEl = wrap.querySelector('#msg');
     const input = wrap.querySelector('#cidr');
     remember(input, 'ipcalc.cidr');
+    /* 与其他页面统一的内联错误（紧贴字段、标红聚焦、重新输入自动清除） */
+    const cidrErr = formError(wrap.querySelector('.field-row'), input);
 
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
       c.addEventListener('click', () => {
@@ -120,15 +120,15 @@ export default {
     setTimeout(calc, 0);
 
     function calc() {
-      msgEl.innerHTML = '';
+      cidrErr.clear();
       outEl.innerHTML = '';
       const raw = input.value.trim();
-      if (!raw) return (msgEl.innerHTML = '<div class="alert warn">请输入网段</div>');
+      if (!raw) return cidrErr.show('请输入网段');
       try {
         if (raw.includes(':')) calcV6(raw);
         else calcV4(raw);
       } catch (e) {
-        msgEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
+        cidrErr.show(e.message);
       }
     }
 
