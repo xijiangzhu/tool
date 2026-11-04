@@ -1,5 +1,5 @@
 /* DNS 记录查询 */
-import { h, toast, esc, api, remember, setBusy } from '../ui.js';
+import { h, esc, api, remember, setBusy, formError } from '../ui.js';
 
 const TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA', 'ALL'];
 
@@ -71,6 +71,7 @@ export default {
     const nameEl = wrap.querySelector('#name');
     remember(nameEl, 'dns.name');
     remember(wrap.querySelector('#server'), 'dns.server');
+    const nameErr = formError(wrap.querySelector('.field-row'), nameEl);
     const outEl = wrap.querySelector('#out');
     const metaEl = wrap.querySelector('#meta');
     const btn = wrap.querySelector('#run');
@@ -126,7 +127,8 @@ export default {
 
     async function run() {
       const name = nameEl.value.trim();
-      if (!name) return toast('请输入域名或 IP', 'err');
+      if (!name) return nameErr.show('请输入要查询的域名或 IP');
+      nameErr.clear();
       setBusy(btn, true, '查询中');
       outEl.innerHTML = '<div class="empty">正在查询…</div>';
       metaEl.textContent = '';

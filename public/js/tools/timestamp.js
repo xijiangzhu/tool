@@ -1,5 +1,5 @@
 /* 时间戳转换（仅本地时区） */
-import { h, copy, toast, esc, remember, pad2, WEEKDAYS, fmtDateTime } from '../ui.js';
+import { h, copy, esc, remember, pad2, WEEKDAYS, fmtDateTime, formError } from '../ui.js';
 
 const WEEK = WEEKDAYS;
 
@@ -172,8 +172,11 @@ export default {
     wrap.querySelector('#tsIn').addEventListener('keydown', (e) => e.key === 'Enter' && convertTs());
 
     /* 本地时间 → 时间戳 */
+    const dtIn = wrap.querySelector('#dtIn');
+    const dtErr = formError(dtIn.closest('.field-row'), dtIn);
+
     function currentTs() {
-      const v = wrap.querySelector('#dtIn').value;
+      const v = dtIn.value;
       if (!v) return null;
       const d = new Date(v);
       return isNaN(d.getTime()) ? null : d.getTime();
@@ -184,7 +187,8 @@ export default {
     }
     function convertDt() {
       const ts = currentTs();
-      if (ts === null) return toast('请选择日期时间', 'err');
+      if (ts === null) return dtErr.show('请选择日期时间');
+      dtErr.clear();
       wrap.querySelector('#dtOutS').textContent = Math.floor(ts / 1000);
       wrap.querySelector('#dtOutMs').textContent = ts;
       renderCustom(ts);
@@ -192,12 +196,13 @@ export default {
     wrap.querySelector('#dtConv').addEventListener('click', convertDt);
     wrap.querySelector('#dtNow').addEventListener('click', () => {
       const d = new Date();
-      wrap.querySelector('#dtIn').value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+      dtIn.value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
       convertDt();
     });
     wrap.querySelector('#fmtBtn').addEventListener('click', () => {
       const ts = currentTs();
-      if (ts === null) return toast('请选择日期时间', 'err');
+      if (ts === null) return dtErr.show('请选择日期时间');
+      dtErr.clear();
       renderCustom(ts);
     });
   },

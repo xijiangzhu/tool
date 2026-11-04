@@ -32,6 +32,41 @@ export function toast(msg, type = 'ok') {
   }, 2200);
 }
 
+/**
+ * 表单内联错误：紧贴字段显示，样式与结果区的 .alert.err 保持一致。
+ * 用户重新输入时会自动清除，并把出错控件标红、聚焦。
+ * @param {HTMLElement} anchor 错误条插入位置（默认插在 anchor 后面）
+ * @param {HTMLElement} field 出错的输入框或其外层容器（用于标红与监听输入）
+ * @param {{ before?: boolean }} [opts] before=true 时插到 anchor 前面
+ */
+export function formError(anchor, field, opts = {}) {
+  const el = h('<div class="field-error" hidden></div>');
+  if (anchor) {
+    if (opts.before) anchor.insertAdjacentElement('beforebegin', el);
+    else anchor.insertAdjacentElement('afterend', el);
+  }
+  const clear = () => {
+    el.hidden = true;
+    el.textContent = '';
+    if (field) field.classList.remove('is-invalid');
+  };
+  if (field) field.addEventListener('input', clear);
+  return {
+    el,
+    show(msg) {
+      el.textContent = msg;
+      el.hidden = false;
+      if (!field) return;
+      field.classList.add('is-invalid');
+      const target = field.matches('input, select, textarea')
+        ? field
+        : field.querySelector('input, select, textarea');
+      if (target) target.focus();
+    },
+    clear,
+  };
+}
+
 /** 复制文本 */
 export async function copy(text, tip = '已复制到剪贴板') {
   try {

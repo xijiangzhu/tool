@@ -1,5 +1,5 @@
 /* SSL 证书检测 */
-import { h, api, copy, toast, esc, remember, setBusy, fmtDateTime } from '../ui.js';
+import { h, api, copy, esc, remember, setBusy, fmtDateTime, formError } from '../ui.js';
 
 const STATUS_MAP = {
   valid: { cls: 'ok', text: '证书有效' },
@@ -55,7 +55,9 @@ export default {
 
     const resultEl = wrap.querySelector('#result');
     const goBtn = wrap.querySelector('#go');
-    remember(wrap.querySelector('#host'), 'ssl.host');
+    const hostEl = wrap.querySelector('#host');
+    remember(hostEl, 'ssl.host');
+    const hostErr = formError(wrap.querySelector('.field-row'), hostEl);
 
     function normalizeTarget(raw) {
       let s = String(raw || '').trim();
@@ -74,10 +76,11 @@ export default {
     async function run() {
       let target;
       try {
-        target = normalizeTarget(wrap.querySelector('#host').value);
+        target = normalizeTarget(hostEl.value);
       } catch (e) {
-        return toast(e.message, 'err');
+        return hostErr.show(e.message);
       }
+      hostErr.clear();
       const host = target.host;
       const port = target.port || Number(wrap.querySelector('#port').value || 443);
       if (target.port) wrap.querySelector('#port').value = target.port;
@@ -102,7 +105,7 @@ export default {
     }
 
     goBtn.addEventListener('click', run);
-    wrap.querySelector('#host').addEventListener('keydown', (e) => e.key === 'Enter' && run());
+    hostEl.addEventListener('keydown', (e) => e.key === 'Enter' && run());
 
     function render(d) {
       const st = STATUS_MAP[d.status] || STATUS_MAP.valid;

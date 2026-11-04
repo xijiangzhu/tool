@@ -1,5 +1,5 @@
 /* Cron 表达式生成器 */
-import { h, copy, toast, esc, remember, segGroup, pad2, WEEKDAYS, fmtDateTime } from '../ui.js';
+import { h, copy, toast, esc, remember, segGroup, pad2, WEEKDAYS, fmtDateTime, formError } from '../ui.js';
 
 const MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
@@ -155,6 +155,8 @@ export default {
     remember(wrap.querySelector('#exprIn'), 'cron.expr');
 
     const exprView = wrap.querySelector('#exprView');
+    const exprIn = wrap.querySelector('#exprIn');
+    const exprErr = formError(exprView, exprIn, { before: true });
     const editorEl = wrap.querySelector('#editor');
     const nextEl = wrap.querySelector('#next');
     const nextNowEl = wrap.querySelector('#nextNow');
@@ -382,7 +384,10 @@ export default {
 
     function parseExpr(text) {
       const parts = text.trim().split(/\s+/);
-      if (parts.length !== 5) return toast('Cron 表达式需为 5 位，如 */5 * * * *', 'err');
+      if (parts.length !== 5) {
+        return exprErr.show('Cron 表达式需为 5 位，如 */5 * * * *');
+      }
+      exprErr.clear();
       FIELDS.forEach((f, i) => {
         const v = parts[i];
         const s = state[f.key];
@@ -403,7 +408,7 @@ export default {
           s.to = Number(v.split('-')[1]);
         } else {
           s.mode = 'every';
-          toast(`${f.name} 字段含特殊语法（${v}），已按“全部”处理`, 'err');
+          toast(`${f.name} 字段含特殊语法（${v}），已按“全部”处理`);
         }
       });
       renderExpr();
@@ -413,13 +418,14 @@ export default {
 
     wrap.querySelector('#parse').addEventListener('click', () => {
       const v = wrap.querySelector('#exprIn').value.trim();
-      if (!v) return toast('请输入表达式', 'err');
+      if (!v) return exprErr.show('请输入 Cron 表达式');
       parseExpr(v);
     });
     wrap.querySelector('#exprIn').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const v = wrap.querySelector('#exprIn').value.trim();
         if (v) parseExpr(v);
+        else exprErr.show('请输入 Cron 表达式');
       }
     });
 

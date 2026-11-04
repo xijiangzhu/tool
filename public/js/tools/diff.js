@@ -1,5 +1,5 @@
 /* 文件差异对比：逐行 diff（Myers），支持并排 / 统一视图 */
-import { h, debounce, copy, download, toast } from '../ui.js';
+import { h, debounce, copy, download } from '../ui.js';
 
 const SAMPLE_A = [
   'server:',
@@ -396,6 +396,7 @@ export default {
           <div class="diff-hbar" id="hbar" hidden><div class="diff-hbar-in" id="hbarIn"></div></div>
 
           <div class="result-strip mt12" id="statBar" style="display:none"></div>
+          <div id="diffMsg"></div>
         </div>
       </section>
     `);
@@ -413,6 +414,7 @@ export default {
     const hbar = wrap.querySelector('#hbar');
     const hbarIn = wrap.querySelector('#hbarIn');
     const statBar = wrap.querySelector('#statBar');
+    const diffMsg = wrap.querySelector('#diffMsg');
     const navInfo = wrap.querySelector('#navInfo');
     const igWs = wrap.querySelector('#igWs');
     const igCase = wrap.querySelector('#igCase');
@@ -562,6 +564,7 @@ export default {
     }
 
     function run() {
+      diffMsg.innerHTML = '';
       updateMeta();
       const a = splitLines(taA.value);
       const b = splitLines(taB.value);
@@ -673,11 +676,11 @@ export default {
     });
 
     wrap.querySelector('#copyDiff').addEventListener('click', () => {
-      if (!patch) return toast('暂无可复制的差异内容', 'err');
+      if (!patch) return void (diffMsg.innerHTML = '<div class="alert err">暂无可复制的差异内容</div>');
       copy(patch, '已复制 diff 文本');
     });
     wrap.querySelector('#dlDiff').addEventListener('click', () => {
-      if (!patch) return toast('暂无可下载的差异内容', 'err');
+      if (!patch) return void (diffMsg.innerHTML = '<div class="alert err">暂无可下载的差异内容</div>');
       download('diff.patch', patch, 'text/x-patch;charset=utf-8');
     });
 
@@ -692,12 +695,16 @@ export default {
         fileB = name;
       }
       run();
-      if (text.length > 2 * 1024 * 1024) toast('文件较大，对比结果可能需要几秒', 'err');
+      if (text.length > 2 * 1024 * 1024) {
+        diffMsg.innerHTML = '<div class="alert warn">文件较大，对比结果可能需要几秒</div>';
+      }
     }
     function readInto(side, file) {
       const reader = new FileReader();
       reader.onload = () => applyFile(side, String(reader.result || ''), file.name);
-      reader.onerror = () => toast('文件读取失败', 'err');
+      reader.onerror = () => {
+        diffMsg.innerHTML = '<div class="alert err">文件读取失败</div>';
+      };
       reader.readAsText(file);
     }
     wrap.querySelectorAll('[data-load]').forEach((btn) =>

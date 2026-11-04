@@ -1,5 +1,5 @@
 /* TCP 端口扫描 */
-import { h, toast, esc, api, remember, setBusy } from '../ui.js';
+import { h, esc, api, remember, setBusy, formError } from '../ui.js';
 
 /* 端口数上限：本地与云端一致（云端并发只有 6，大范围扫描会慢，但不限数量） */
 const MAX_PORTS = 2000;
@@ -80,6 +80,8 @@ export default {
     const portsEl = wrap.querySelector('#ports');
     remember(hostEl, 'portscan.host');
     remember(portsEl, 'portscan.ports');
+    const hostErr = formError(hostEl.closest('.field-row'), hostEl);
+    const portsErr = formError(portsEl, portsEl);
     const outEl = wrap.querySelector('#out');
     const metaEl = wrap.querySelector('#meta');
     const btn = wrap.querySelector('#run');
@@ -114,8 +116,9 @@ export default {
       c.addEventListener('click', () => {
         const n = portCount(c.dataset.v);
         if (n > MAX_PORTS) {
-          return toast(`该范围含 ${n} 个端口，超过单次上限 ${MAX_PORTS} 个，请手动缩小`, 'err');
+          return portsErr.show(`该范围含 ${n} 个端口，超过单次上限 ${MAX_PORTS} 个，请手动缩小`);
         }
+        portsErr.clear();
         portsEl.value = c.dataset.v;
       })
     );
@@ -152,14 +155,16 @@ export default {
 
     async function run() {
       const host = hostEl.value.trim();
-      if (!host) return toast('请输入域名或 IP', 'err');
+      if (!host) return hostErr.show('请输入要扫描的域名或 IP');
       const portsStr = portsEl.value.trim();
       const count = portCount(portsStr);
-      if (Number.isNaN(count)) return toast('端口写法不合法，示例：22,80,443 或 1-1024', 'err');
-      if (!count) return toast('请填写端口范围，如 22,80,443 或 1-1024', 'err');
+      if (Number.isNaN(count)) return portsErr.show('端口写法不合法，示例：22,80,443 或 1-1024');
+      if (!count) return portsErr.show('请填写端口范围，如 22,80,443 或 1-1024');
       if (count > MAX_PORTS) {
-        return toast(`单次最多扫描 ${MAX_PORTS} 个端口（当前 ${count} 个），请缩小范围`, 'err');
+        return portsErr.show(`单次最多扫描 ${MAX_PORTS} 个端口（当前 ${count} 个），请缩小范围`);
       }
+      hostErr.clear();
+      portsErr.clear();
       setBusy(btn, true, '扫描中');
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';
       metaEl.textContent = '';

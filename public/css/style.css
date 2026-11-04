@@ -571,6 +571,24 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .alert.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
 .alert.info { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-2); }
 
+/* 表单内联错误：与 .alert.err 同一套配色，紧跟字段显示，不占固定高度 */
+.field-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--err);
+  border-radius: var(--radius-sm);
+  background: var(--err-soft);
+  color: var(--err);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.field-error[hidden] { display: none; }
+/* 出错的输入控件 / 查询框：统一标红 */
+.is-invalid {
+  border-color: var(--err) !important;
+  box-shadow: 0 0 0 3px var(--err-soft) !important;
+}
+
 .empty {
   padding: 26px;
   text-align: center;
@@ -885,7 +903,7 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   gap: 8px;
 }
 .toast.ok { border-left: 3px solid var(--ok); }
-.toast.err { border-left: 3px solid var(--err); }
+.toast.err { border-color: var(--err); border-left: 3px solid var(--err); background: var(--err-soft); color: var(--err); }
 @keyframes slideIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 
 .spinner {

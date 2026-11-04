@@ -1,5 +1,5 @@
 /* URL 编码 / 解码 与 URL 解析 */
-import { h, copy, codeBox, toast, esc, remember, segGroup } from '../ui.js';
+import { h, copy, codeBox, esc, remember, segGroup, formError } from '../ui.js';
 
 export default {
   id: 'url',
@@ -126,6 +126,7 @@ export default {
     const parseInput = wrap.querySelector('#parseInput');
     remember(parseInput, 'url.parse');
     const parseOut = wrap.querySelector('#parseOut');
+    const parseErr = formError(parseInput.closest('.field-row'), parseInput);
     let parsed = null;
 
     function renderParse() {
@@ -188,15 +189,14 @@ export default {
 
     function doParse() {
       const v = parseInput.value.trim();
-      if (!v) {
-        parseOut.innerHTML = '<div class="empty">请先输入 URL</div>';
-        return;
-      }
+      if (!v) return parseErr.show('请先输入 URL');
+      parseErr.clear();
       try {
         parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : 'https://' + v);
         renderParse();
       } catch (e) {
-        parseOut.innerHTML = `<div class="alert err">URL 解析失败：${esc(e.message)}</div>`;
+        parseOut.innerHTML = '';
+        parseErr.show(`URL 解析失败：${e.message}`);
       }
     }
 
@@ -205,7 +205,7 @@ export default {
 
     wrap.querySelector('#copyUrl').addEventListener('click', () => {
       const v = parseInput.value.trim();
-      if (!v) return toast('请先输入或解析 URL', 'err');
+      if (!v) return parseErr.show('请先输入或解析 URL');
       copy(v, '已复制 URL');
     });
   },

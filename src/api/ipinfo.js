@@ -4,6 +4,27 @@ import { geoLookup } from '../lib/geo.js';
 import { isIP, ipScope, ipv4ToInt, isPrivateHost } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
+/* 仅 A / 仅 AAAA 的出口查询地址：显式按地址族探测，
+   避免运营商双栈下第三方服务随机按 IPv4 / IPv6 识别，导致「我的 IP」一会儿一个版本。 */
+const EGRESS_URL = {
+  4: 'https://api.ipify.org',
+  6: 'https://ipv6.icanhazip.com',
+};
+
+async function egressIp(family, ms = family === 4 ? 4000 : 2000) {
+  try {
+    const res = await fetch(EGRESS_URL[family], {
+      headers: { accept: 'text/plain' },
+      signal: AbortSignal.timeout(ms),
+    });
+    if (!res.ok) return null;
+    const v = (await res.text()).trim();
+    return isIP(v) === family ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function ipinfo(input, ctx) {
   const p = await platform();
   const started = Date.now();
@@ -15,6 +36,7 @@ export async function ipinfo(input, ctx) {
 
   let ip = '';
   let from = null;
+  let altV6 = null;
 
   if (host) {
     if (isIP(host)) {
@@ -32,9 +54,17 @@ export async function ipinfo(input, ctx) {
       from = host;
     }
   } else {
-    // 留空 → 访问者出口 IP；本地运行时拿到的是内网地址，交给第三方按实际出口识别
+    // 留空 → 访问者出口 IP
     const ci = p.clientIp(ctx.request);
-    if (ci && !isPrivateHost(ci)) ip = ci;
+    if (ci && !isPrivateHost(ci)) {
+      ip = ci;
+    } else {
+      // 本地运行 / 看不到真实客户端地址：服务端与浏览器同机，直接探测本机公网出口。
+      // 优先 IPv4；同时拿到 IPv6 时作为附加上报，前端不会再在两个版本间跳变。
+      const [v4, v6] = await Promise.all([egressIp(4), egressIp(6)]);
+      ip = v4 || v6 || '';
+      if (v4) altV6 = v6;
+    }
   }
 
   let geo = null;
@@ -57,6 +87,7 @@ export async function ipinfo(input, ctx) {
     decimal: ipv4ToInt(ip),
     ptr,
     geo,
+    altV6,
     elapsed: Date.now() - started,
   };
 }

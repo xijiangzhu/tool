@@ -1,5 +1,5 @@
 /* HTTP 调试 */
-import { h, api, copy, toast, codeBox, esc, fmtBytes, remember, segGroup, setBusy } from '../ui.js';
+import { h, api, copy, codeBox, esc, fmtBytes, remember, segGroup, setBusy, formError } from '../ui.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -119,6 +119,7 @@ export default {
     const sendBtn = wrap.querySelector('#send');
     const urlEl = wrap.querySelector('#url');
     remember(urlEl, 'http.url');
+    const urlErr = formError(wrap.querySelector('.http-url-row'), urlEl);
 
     function currentReq() {
       return {
@@ -147,6 +148,7 @@ export default {
     wrap.querySelector('#curl').addEventListener('click', () => copy(toCurl(currentReq()), '已复制 cURL'));
     wrap.querySelector('#clear').addEventListener('click', () => {
       urlEl.value = '';
+      urlErr.clear();
       bodyBox.setValue('');
       headersEl.innerHTML = '';
       addHeader('Accept', '*/*');
@@ -155,8 +157,9 @@ export default {
 
     async function send() {
       const req = currentReq();
-      if (!req.url) return toast('请输入 URL', 'err');
-      if (!/^https?:\/\//i.test(req.url)) return toast('URL 需以 http:// 或 https:// 开头', 'err');
+      if (!req.url) return urlErr.show('请输入要请求的 URL');
+      if (!/^https?:\/\//i.test(req.url)) return urlErr.show('URL 需以 http:// 或 https:// 开头');
+      urlErr.clear();
       setBusy(sendBtn, true, '请求中');
       resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">请求发送中…</div></div></div>';
       let res;

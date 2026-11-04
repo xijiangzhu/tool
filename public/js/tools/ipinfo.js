@@ -1,5 +1,5 @@
 /* IP 地址查询：公网出口 / 任意 IP 归属地 */
-import { h, esc, api, copy, remember, setBusy } from '../ui.js';
+import { h, esc, api, copy, remember, setBusy, formError } from '../ui.js';
 
 const QUICK = [
   ['本机出口', ''],
@@ -30,9 +30,32 @@ const V4_SOURCES = [
   { url: 'https://v4.ident.me', json: false },
 ];
 const V4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const V4_CACHE_KEY = 'ops.ipv4';
+const V4_CACHE_TTL = 10 * 60 * 1000;
+
+/** 一段时间内复用上次检测到的 IPv4，避免网络双栈抖动导致地址一会儿 IPv4 一会儿 IPv6 */
+function readCachedV4() {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(V4_CACHE_KEY) || 'null');
+    if (!raw || !V4_RE.test(raw.ip || '')) return null;
+    if (!raw.t || Date.now() - raw.t > V4_CACHE_TTL) return null;
+    return raw.ip;
+  } catch (_) {
+    return null;
+  }
+}
+function writeCachedV4(ip) {
+  try {
+    sessionStorage.setItem(V4_CACHE_KEY, JSON.stringify({ ip, t: Date.now() }));
+  } catch (_) {}
+}
 
 /** 多源并发抢跑：谁先返回合法 IPv4 用谁，避免某个源在特定网络不可达时整体失败 */
-async function detectIpv4(budget = 4500) {
+async function detectIpv4(budget = 4000, force = false) {
+  if (!force) {
+    const cached = readCachedV4();
+    if (cached) return cached;
+  }
   const ctrls = [];
   const tasks = V4_SOURCES.map(async (s) => {
     const ctrl = new AbortController();
@@ -51,7 +74,11 @@ async function detectIpv4(budget = 4500) {
   });
   try {
     const v4 = await Promise.any(tasks);
-    return V4_RE.test(v4) ? v4 : null;
+    if (V4_RE.test(v4)) {
+      writeCachedV4(v4);
+      return v4;
+    }
+    return null;
   } catch (_) {
     return null;
   } finally {
@@ -64,15 +91,19 @@ async function detectIpv4(budget = 4500) {
 }
 
 /** 本机出口：先由浏览器自查 IPv4，服务端查询并行发起，全部就绪后一次性渲染，
- *  避免先显示 IPv6 再跳成 IPv4 的闪烁。 */
-async function myIpInfo() {
+ *  避免先显示 IPv6 再跳成 IPv4 的闪烁。
+ *  @param {boolean} force 忽略会话缓存，强制重新探测 IPv4（用户点「刷新」时使用） */
+async function myIpInfo(force = false) {
   const started = Date.now();
   const mineP = api('/api/net/ipinfo', { ip: '' });
-  const v4 = await detectIpv4(3000);
+  // 浏览器自查与服务端查询并行；服务端已经给出 IPv4 时无需等它
+  const v4P = detectIpv4(4000, force);
   const mine = await mineP;
   if (!mine.ok) throw new Error(mine.error);
   let d = mine.data || {};
-  const serverV6 = d.version === 'IPv6' ? d.ip : null;
+  const serverV6 = d.version === 'IPv6' ? d.ip : d.altV6 || null;
+  if (d.ip && d.version === 'IPv4') return { ...d, altV6: serverV6 };
+  const v4 = await v4P;
   if (v4 && (!d.ip || d.version !== 'IPv4')) {
     const r4 = await api('/api/net/ipinfo', { ip: v4 });
     d = r4.ok && r4.data
@@ -105,7 +136,7 @@ export default {
       <section class="card">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>IP 查询</div>
-          <div class="card-note">支持 IPv4 / IPv6 / 域名，留空则查询本机出口 IP</div>
+          <div class="card-note">支持 IPv4 / IPv6 / 域名；本机出口见下方「我的 IP 信息」</div>
         </div>
         <div class="card-body">
           <div class="ipq-search">
@@ -142,19 +173,33 @@ export default {
               <div class="myip-sub dim" id="pubMeta"></div>
             </div>
           </div>
+          <div class="ip-kv ipq-kv mt8" id="pubKv"></div>
         </div>
       </section>
     `);
     root.appendChild(wrap);
 
     const qEl = remember(wrap.querySelector('#q'), 'ipinfo.ip');
+    const qErr = formError(wrap.querySelector('.ipq-search'), wrap.querySelector('.ipq-search'));
     const goBtn = wrap.querySelector('#go');
     const outEl = wrap.querySelector('#out');
     const pubIpEl = wrap.querySelector('#pubIp');
     const pubBadgeEl = wrap.querySelector('#pubBadge');
     const pubWhereEl = wrap.querySelector('#pubWhere');
     const pubMetaEl = wrap.querySelector('#pubMeta');
+    const pubKvEl = wrap.querySelector('#pubKv');
     const reloadBtn = wrap.querySelector('#reload');
+
+    function renderKv(el, rows) {
+      el.innerHTML = rows
+        .map(
+          ([k, v]) =>
+            `<div class="ip-kv-item"><div class="ip-kv-label">${esc(k)}</div><div class="ip-kv-value mono" title="${esc(
+              v
+            )}">${esc(v)}</div></div>`
+        )
+        .join('');
+    }
 
     function renderPublic(d) {
       const g = d.geo;
@@ -164,36 +209,50 @@ export default {
         pubBadgeEl.textContent = '出口未知';
         pubWhereEl.textContent = '';
         pubMetaEl.textContent = '';
+        pubKvEl.innerHTML = '';
         return;
       }
       pubIpEl.textContent = d.ip;
       pubBadgeEl.className = 'badge ok';
-      pubBadgeEl.textContent = d.altV6 ? 'IPv4' : d.version === 'IPv6' ? 'IPv6' : d.scope ? d.scope.label : '公网地址';
+      pubBadgeEl.textContent = d.version || '未知';
       pubWhereEl.textContent = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
       let meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
-      if (d.altV6) meta += ` · IPv6 出口 ${d.altV6}（已优先显示 IPv4）`;
+      if (d.altV6) meta += ' · 已优先显示 IPv4，IPv6 出口见下方';
       else if (d.version === 'IPv6') meta += ' · 未取到 IPv4 出口，可点刷新重试';
       pubMetaEl.textContent = meta;
+
+      const rows = [
+        ['运营商', (g && g.isp) || '—'],
+        ['ASN / 组织', asnText(g)],
+        ['时区', (g && g.timezone) || '—'],
+        ['经纬度', coordText(g)],
+        ['反向解析', d.ptr || '—'],
+        ['IP 类型', d.scope ? d.scope.label : '—'],
+        ['十进制', d.decimal != null ? String(d.decimal) : '—'],
+      ];
+      if (d.altV6) rows.push(['IPv6 出口', d.altV6]);
+      renderKv(pubKvEl, rows);
     }
 
-    async function loadMine() {
+    async function loadMine(force = false) {
       reloadBtn.disabled = true;
       reloadBtn.classList.add('is-busy');
       try {
-        renderPublic(await myIpInfo());
+        renderPublic(await myIpInfo(force));
       } catch (e) {
         pubIpEl.textContent = '—';
         pubBadgeEl.className = 'badge warn';
         pubBadgeEl.textContent = '出口未知';
         pubWhereEl.textContent = '';
         pubMetaEl.textContent = e.message;
+        pubKvEl.innerHTML = '';
       } finally {
         reloadBtn.disabled = false;
         reloadBtn.classList.remove('is-busy');
       }
     }
 
-    reloadBtn.addEventListener('click', loadMine);
+    reloadBtn.addEventListener('click', () => loadMine(true));
 
     /* ------------------------------- IP 查询 ------------------------------- */
     function renderIp(d) {
@@ -250,23 +309,36 @@ export default {
     }
 
     let running = false;
-    async function run() {
+
+    /** 在查询结果区展示本机出口（快捷入口「本机出口」使用） */
+    async function runMine() {
       if (running) return;
+      running = true;
+      qErr.clear();
+      setBusy(goBtn, true, '查询中');
+      outEl.innerHTML = '<div class="empty">正在检测本机出口…</div>';
+      try {
+        renderIp(await myIpInfo());
+      } catch (e) {
+        outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
+      } finally {
+        running = false;
+        setBusy(goBtn, false);
+      }
+    }
+
+    async function run() {
+      const q = qEl.value.trim();
+      if (!q) return qErr.show('请输入要查询的 IP 或域名');
+      if (running) return;
+      qErr.clear();
       running = true;
       setBusy(goBtn, true, '查询中');
       outEl.innerHTML = '<div class="empty">正在查询…</div>';
       try {
-        const q = qEl.value.trim();
-        let d;
-        if (q) {
-          const r = await api('/api/net/ipinfo', { ip: q });
-          if (!r.ok) throw new Error(r.error);
-          d = r.data;
-        } else {
-          // 「本机出口」留空查询同样优先 IPv4
-          d = await myIpInfo();
-        }
-        renderIp(d);
+        const r = await api('/api/net/ipinfo', { ip: q });
+        if (!r.ok) throw new Error(r.error);
+        renderIp(r.data);
       } catch (e) {
         outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {
@@ -279,6 +351,12 @@ export default {
     qEl.addEventListener('keydown', (e) => e.key === 'Enter' && run());
     wrap.querySelectorAll('#quick .chip').forEach((c) =>
       c.addEventListener('click', () => {
+        // 「本机出口」没有具体查询值，直接复用本机检测，不再走空查询
+        if (c.dataset.v === '') {
+          qEl.value = '';
+          runMine();
+          return;
+        }
         qEl.value = c.dataset.v;
         run();
       })
