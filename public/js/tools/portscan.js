@@ -48,7 +48,7 @@ export default {
 
           <div class="field mt12">
             <label class="lb">端口范围</label>
-            <input type="text" id="ports" class="mono" value="${COMMON}" placeholder="22,80,443 或 1-1024" />
+            <input type="text" id="ports" class="mono" placeholder="22,80,443 或 1-1024" />
             <div class="chips mt8">
               ${PRESETS.map(([n, v]) => `<span class="chip" data-v="${v}">${n}</span>`).join('')}
             </div>
