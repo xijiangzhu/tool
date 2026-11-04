@@ -61,7 +61,12 @@ export function formError(anchor, field, opts = {}) {
       const target = field.matches('input, select, textarea')
         ? field
         : field.querySelector('input, select, textarea');
-      if (target) target.focus();
+      if (target) {
+        // 聚焦报错控件，但抑制 remember() 在 focus 时弹出的历史下拉
+        target._histSuppress = true;
+        target.focus();
+        setTimeout(() => (target._histSuppress = false), 0);
+      }
     },
     clear,
   };
@@ -288,10 +293,16 @@ document.addEventListener(
       if (el) el.scrollIntoView({ block: 'nearest' });
       return;
     }
-    if (e.key === 'Enter' && hpState.active >= 0) {
-      e.preventDefault();
-      e.stopPropagation();
-      histPick(hpState.active);
+    if (e.key === 'Enter') {
+      if (hpState.active >= 0) {
+        // 选中了历史项：回车即回填，拦下不让工具同时提交
+        e.preventDefault();
+        e.stopPropagation();
+        histPick(hpState.active);
+      } else {
+        // 未选中历史项：用户在提交表单，收起面板，提交动作照常进行
+        histHide();
+      }
     }
   },
   true
@@ -320,6 +331,8 @@ export function remember(input, key) {
   const own = () => hpState.input === input;
 
   function show() {
+    // 程序化聚焦（如表单报错时聚焦出错控件）不应顺带弹出「最近使用」
+    if (input._histSuppress) return;
     const q = input.value.trim().toLowerCase();
     const list = histRead(key)
       .filter((v) => !q || v.toLowerCase().includes(q))
