@@ -240,7 +240,6 @@ export default {
           <span class="spacer"></span>
           <span class="muted">${esc(meta)}</span>
         </div>` + kvGrid(rows);
-      copyRow(pubOutEl, d, rows);
     }
 
     async function loadMine(force = false) {
@@ -287,7 +286,6 @@ export default {
           ? '<div class="hint">该地址属于内网 / 保留网段，没有公网归属地信息。</div>'
           : '';
       outEl.innerHTML = head + kvGrid(kv) + extra;
-      copyRow(outEl, d, kv);
     }
 
     let running = false;

@@ -368,7 +368,6 @@ export function codeBox(opts = {}) {
         <span class="out-title"${opts.title ? '' : ' style="display:none"'}>${esc(opts.title || '')}</span>
         <span class="out-meta"></span>
         <span class="out-actions">
-          <button class="btn btn-sm btn-ghost" data-act="hl">高亮</button>
           <button class="btn btn-sm btn-ghost" data-act="copy">复制</button>
           ${opts.download ? '<button class="btn btn-sm btn-ghost" data-act="dl">下载</button>' : ''}
         </span>
@@ -383,7 +382,6 @@ export function codeBox(opts = {}) {
   const pre = el.querySelector('pre');
   const code = el.querySelector('code');
   const meta = el.querySelector('.out-meta');
-  const hlBtn = el.querySelector('[data-act="hl"]');
   const body = el.querySelector('.out-body');
   if (opts.height) {
     /* 滚动交给外层 .out-body（滚动条光标为手型），文本框只负责随内容增高 */
@@ -423,24 +421,6 @@ export function codeBox(opts = {}) {
       } catch (_) {}
     }
   }
-  function setHl(on) {
-    highlighted = on;
-    if (on) {
-      renderHighlight();
-      ta.style.display = 'none';
-      pre.style.display = '';
-      /* 激活态：去掉 ghost，避免 ghost 的透明底与主色白字在 hover 时打架（白字看不清） */
-      hlBtn.classList.remove('btn-ghost');
-      hlBtn.classList.add('btn-primary');
-    } else {
-      ta.style.display = '';
-      pre.style.display = 'none';
-      hlBtn.classList.remove('btn-primary');
-      hlBtn.classList.add('btn-ghost');
-    }
-  }
-
-  hlBtn.addEventListener('click', () => setHl(!highlighted));
   el.querySelector('[data-act="copy"]').addEventListener('click', () => copy(ta.value));
   const dlBtn = el.querySelector('[data-act="dl"]');
   if (dlBtn) {

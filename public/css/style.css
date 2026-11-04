@@ -1132,20 +1132,17 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   border-radius: var(--radius-sm);
   background: var(--panel);
 }
-/* 两栏之间留出明显的灰色分隔条：底色槽 + 居中一条竖向分界线 */
+/* 两侧以轻微边界区分，避免突兀的竖向分隔条 */
 .diff-inputs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 0;
   height: 100%;
   min-width: 100%;
-  background-color: var(--bg);
-  background-image: linear-gradient(var(--muted), var(--muted));
-  background-size: 2px 100%;
-  background-position: center top;
-  background-repeat: no-repeat;
+  background: var(--panel);
 }
 .diff-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.diff-pane + .diff-pane { border-left: 1px solid var(--border); }
 
 .diff-pane-head {
   position: sticky;
@@ -1337,7 +1334,7 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   height: var(--ctl-h);
   padding: 0 3px 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   transition: border-color .15s, box-shadow .15s;
 }
