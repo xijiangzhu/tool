@@ -125,7 +125,7 @@ export default {
       c.addEventListener('click', () => {
         const n = portCount(c.dataset.v);
         if (n > MAX_PORTS) {
-          return portsErr.show(`该范围含 ${n} 个端口，超过单次上限 ${MAX_PORTS} 个，请手动缩小`);
+          return portsErr.show(`该范围超过单次扫描上限 ${MAX_PORTS} 个端口，请手动缩小`);
         }
         portsErr.clear();
         portsEl.value = c.dataset.v;
@@ -183,7 +183,7 @@ export default {
       if (Number.isNaN(count)) return portsErr.show('端口写法不合法，示例：22,80,443 或 1-1024');
       if (!count) return portsErr.show('请填写端口范围，如 22,80,443 或 1-1024');
       if (count > MAX_PORTS) {
-        return portsErr.show(`单次最多扫描 ${MAX_PORTS} 个端口（当前 ${count} 个），请缩小范围`);
+        return portsErr.show(`单次最多扫描 ${MAX_PORTS} 个端口，当前端口范围超过上限，请缩小范围`);
       }
       hostErr.clear();
       portsErr.clear();
