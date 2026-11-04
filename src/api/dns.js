@@ -40,7 +40,7 @@ export default async function dnsQuery(input) {
       return { type: t, records: [], error: 'PTR 查询需要输入 IP 地址', code: 'EINVAL', elapsed: 0 };
     }
     const r = await p.dnsOne(name, t, { server: srv, endpoint });
-    if (!usedServer && r.server) usedServer = r.server;
+    if (r.server) usedServer = r.server; // 回退到新服务器时同步更新展示名称
     return {
       type: t,
       records: r.records || [],

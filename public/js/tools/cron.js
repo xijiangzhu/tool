@@ -2,16 +2,13 @@
 import { h, copy, toast, esc, remember, segGroup, pad2, WEEKDAYS, fmtDateTime } from '../ui.js';
 
 const MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
-/* 星期名与时间戳工具共用一份，避免两处维护 */
-const WEEK = WEEKDAYS;
-const DOW_LABELS = WEEKDAYS;
 
 const FIELDS = [
   { key: 'minute', name: '分钟', min: 0, max: 59 },
   { key: 'hour', name: '小时', min: 0, max: 23 },
   { key: 'dom', name: '日', min: 1, max: 31 },
   { key: 'month', name: '月', min: 1, max: 12, labels: MONTH_LABELS },
-  { key: 'dow', name: '星期', min: 0, max: 6, labels: DOW_LABELS },
+  { key: 'dow', name: '星期', min: 0, max: 6, labels: WEEKDAYS },
 ];
 
 const PRESETS = [
@@ -69,8 +66,9 @@ function nextRuns(expr, count = 5, from = new Date()) {
   let iter = 0;
   while (out.length < count && iter++ < maxIter) {
     if (!fMon(d.getMonth() + 1)) {
-      d.setDate(1);
-      d.setHours(24, 0, 0, 0);
+      // 直接跳到下个月 1 日 00:00；用 setHours(24) 会在「当月 1 日 / 2 日」之间循环
+      d.setMonth(d.getMonth() + 1, 1);
+      d.setHours(0, 0, 0, 0);
       continue;
     }
     const domOk = fDom(d.getDate());
@@ -219,10 +217,10 @@ export default {
       if (dom !== '*') dayTxt = listText(dom, FIELDS[2], '号');
       if (dow !== '*') {
         const wt = dow.includes(',')
-          ? dow.split(',').map((x) => WEEK[Number(x)]).join('、')
+          ? dow.split(',').map((x) => WEEKDAYS[Number(x)]).join('、')
           : dow.includes('-')
-          ? `${WEEK[Number(dow.split('-')[0])]} 至 ${WEEK[Number(dow.split('-')[1])]}`
-          : WEEK[Number(dow)];
+          ? `${WEEKDAYS[Number(dow.split('-')[0])]} 至 ${WEEKDAYS[Number(dow.split('-')[1])]}`
+          : WEEKDAYS[Number(dow)];
         dayTxt = dayTxt ? `${dayTxt} 且 ${wt}` : wt;
       }
       if (mon !== '*') dayTxt += (dayTxt ? '（' : '') + listText(mon, FIELDS[3], '月') + (dayTxt ? '）' : '');

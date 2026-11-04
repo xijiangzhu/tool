@@ -442,7 +442,7 @@ export default {
       const numsEl = side === 'a' ? numA : numB;
       const marks = side === 'a' ? delMap : insMap;
       const value = ta.value;
-      const count = value === '' ? 1 : value.split('\n').length;
+      const count = Math.max(1, splitLines(value).length);
       const lb = [];
       const nb = [];
       for (let i = 1; i <= count; i++) {

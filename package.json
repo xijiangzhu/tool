@@ -22,13 +22,12 @@
   ],
   "author": "",
   "license": "ISC",
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "dompurify": "^3.4.17",
     "js-yaml": "^5.5.0",
     "marked": "^18.1.2",
-    "prismjs": "^1.30.0"
-  },
-  "devDependencies": {
+    "prismjs": "^1.30.0",
     "wrangler": "^4.156.2"
   }
 }

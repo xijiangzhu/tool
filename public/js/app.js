@@ -1,6 +1,6 @@
 /* 应用入口：工具注册、导航、路由、主题 */
 
-import { h, esc, toast, serverEnv } from './ui.js';
+import { h, esc, toast } from './ui.js';
 
 import base64 from './tools/base64.js';
 import json from './tools/json.js';
@@ -198,13 +198,12 @@ const MODES = {
   edge: { cls: 'page-mode net', text: '经云端服务转发', tip: '请求由云端服务代发，浏览器不直连第三方' },
 };
 
-/* 服务端运行环境：决定「运行方式」胶囊文案，并写入 serverEnv 供各工具读取 */
+/* 服务端运行环境：决定「运行方式」胶囊文案 */
 let runtime = null;
 fetch('/api/health')
   .then((r) => r.json())
   .then((j) => {
     runtime = j && j.runtime ? j.runtime : null;
-    serverEnv.runtime = runtime;
     const tool = current && TOOLS.find((t) => t.id === current);
     if (runtime === 'workers' && tool && tool.net) applyMode(tool);
   })

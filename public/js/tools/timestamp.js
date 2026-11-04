@@ -147,11 +147,15 @@ export default {
       else ts = String(Math.abs(n)).length > 11 ? n : n * 1000;
 
       const unitTxt = unit === 'auto' ? (String(Math.abs(n)).length > 11 ? '毫秒' : '秒') : unit === 's' ? '秒' : '毫秒';
+      const date = new Date(ts);
+      if (Number.isNaN(date.getTime())) {
+        return (out.innerHTML = '<div class="alert err">时间戳超出可表示范围（无法转换为日期）</div>');
+      }
       out.innerHTML = `
         <table class="tbl zebra">
           <tr><th style="width:150px">识别单位</th><td>${unitTxt}</td></tr>
-          <tr><th>本地时间</th><td class="mono">${fmtDateTime(ts)} ${WEEK[new Date(ts).getDay()]}</td></tr>
-          <tr><th>ISO 8601</th><td class="mono">${new Date(ts).toISOString()}</td></tr>
+          <tr><th>本地时间</th><td class="mono">${fmtDateTime(ts)} ${WEEKDAYS[date.getDay()]}</td></tr>
+          <tr><th>ISO 8601</th><td class="mono">${date.toISOString()}</td></tr>
           <tr><th>相对现在</th><td>${relative(ts)}</td></tr>
         </table>
         <div class="btn-row mt8">

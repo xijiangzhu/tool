@@ -4,7 +4,7 @@
 import { friendlyDnsError, isIP, reverseName } from './util.js';
 
 /** 候选公共 DoH（均支持 application/dns-json） */
-export const CANDIDATES = [
+const CANDIDATES = [
   { url: 'https://cloudflare-dns.com/dns-query', name: 'Cloudflare DoH' },
   { url: 'https://doh.pub/dns-query', name: '腾讯 DoH' },
   { url: 'https://dns.google/dns-query', name: 'Google DoH' },
@@ -30,14 +30,14 @@ const STATUS_TEXT = {
   5: 'DNS 服务器拒绝查询（REFUSED）',
 };
 
-export const TYPE_NUM = {
+const TYPE_NUM = {
   A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28, SRV: 33, CAA: 257,
 };
 
-export const stripDot = (s) => String(s || '').replace(/\.$/, '');
+const stripDot = (s) => String(s || '').replace(/\.$/, '');
 
 /** TXT 记录的数据是若干带引号的片段，拼回原文 */
-export function parseTxt(data) {
+function parseTxt(data) {
   const parts = String(data || '').match(/"((?:[^"\\]|\\.)*)"/g);
   if (parts) return parts.map((s) => s.slice(1, -1).replace(/\\"/g, '"')).join('');
   return String(data || '').replace(/^"|"$/g, '');
@@ -51,7 +51,7 @@ const unsigned = (v) => {
 };
 
 /** 把 DoH 的 data 字段解析成前端需要的字段结构 */
-export function toRecord(type, raw) {
+function toRecord(type, raw) {
   const data = String(raw || '');
   switch (type) {
     case 'A':
@@ -139,8 +139,8 @@ async function rawQuery(name, type, endpoint, ms) {
 }
 
 /** 选一个可用的 DoH 端点（首次成功后缓存） */
-export async function getEndpoint(force = false) {
-  if (cached && !force) return cached;
+async function getEndpoint(force = false) {
+  if (cached && !force && !isBad(cached)) return cached;
   if (probing) return probing;
   probing = (async () => {
     const errors = [];

@@ -22,7 +22,7 @@ npm start          # Node：       http://localhost:3000
 npm run dev        # Workers 本地：http://127.0.0.1:8787
 ```
 
-两者跑的是**同一个 `src/index.js`**，端口可用 `PORT=8080 npm start` 修改。
+两者跑的是**同一个 `src/index.js`**。Node 默认只监听本机 `127.0.0.1`，端口用 `PORT=8080 npm start` 修改（PowerShell 用 `$env:PORT=8080; npm start`）；需要局域网访问时再设置 `HOST=0.0.0.0`。
 
 ## 部署到 Cloudflare
 
@@ -61,15 +61,17 @@ src/
     doh.js           DoH 客户端（Workers 的解析实现）
     geo.js           归属地三源兜底
     ct.js            证书透明日志查询（Workers 的证书来源）
+    rawtls.js        自解析 TLS 握手：证书链 / 协议 / 套件（两端共用）
+    ssllabs.js       SSL Labs 评级与协议支持（兜底数据源）
   platform/
     index.js         运行时探测 + 按需加载
-    node.js          node:dns / node:tls / node:net / node:os / 文件系统
+    node.js          node:dns / node:net / 文件系统
     workers.js       DoH / cloudflare:sockets / request.cf / ASSETS
 public/              前端（index.html / js / css / vendor），无构建步骤
 wrangler.jsonc       Workers 配置
 ```
 
-平台接口很薄，只有这几项：`dnsOne`、`lookupIps`、`reverseLookup`、`httpSend`、`tcpProbe`、`tcpOpen`、`inspectTls`、`serveStatic`。其余全部是共享逻辑——加一个新工具只需写 `src/api/xxx.js` 并在 `index.js` 的 `ROUTES` 里登记一行。
+平台接口很薄，只有这几项：`dnsOne`、`dnsCandidates`、`checkDnsServer`、`lookupIps`、`reverseLookup`、`httpSend`、`tcpProbe`、`tcpOpen`、`serveStatic`，另有 `clientIp` / `cfGeo` 两个可选能力。其余全部是共享逻辑——加一个新工具只需写 `src/api/xxx.js` 并在 `index.js` 的 `ROUTES` 里登记一行。
 
 ## 两种运行时的能力差异
 

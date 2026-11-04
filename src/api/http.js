@@ -68,8 +68,13 @@ export default async function httpProxy(input) {
         } catch (_) {
           return finish(res, { startAll, currentUrl, method, redirects, headers, bodyStr, input });
         }
-        // 303 之后方法降级（与常见客户端一致）
-        if (res.status === 303 && method !== 'GET' && method !== 'HEAD') method = 'GET';
+        // 301/302/303 之后方法降级为 GET（307/308 保留原方法），与常见客户端一致
+        if (
+          res.status === 303 ||
+          ((res.status === 301 || res.status === 302) && method !== 'GET' && method !== 'HEAD')
+        ) {
+          method = 'GET';
+        }
         continue;
       }
 

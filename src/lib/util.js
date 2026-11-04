@@ -71,6 +71,18 @@ export function isPrivateHost(host) {
     );
   }
   const low = host.toLowerCase();
+  // IPv4-mapped IPv6（::ffff:127.0.0.1 / ::ffff:7f00:1）按内嵌的 IPv4 判断
+  const mapped = /^::ffff:(.+)$/.exec(low);
+  if (mapped) {
+    const tail = mapped[1];
+    if (isIPv4(tail)) return isPrivateHost(tail);
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
+    if (hex) {
+      const hi = parseInt(hex[1], 16);
+      const lo = parseInt(hex[2], 16);
+      return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+  }
   return low === '::1' || /^f[cd]/.test(low) || /^fe[89ab]/.test(low);
 }
 
@@ -186,16 +198,6 @@ export function friendlyDnsError(e) {
 
 const MAX_BODY = 5 * 1024 * 1024; // 5MB
 
-const CORS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
-};
-
-export function corsHeaders() {
-  return { ...CORS };
-}
-
 /** 统一 JSON 响应 */
 export function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -203,7 +205,6 @@ export function json(data, status = 200) {
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
-      ...CORS,
     },
   });
 }

@@ -89,8 +89,8 @@ export default {
 
     /** 统计端口写法覆盖的端口数：'80,443' → 2，'1-1024' → 1024；写法非法返回 NaN */
     function portCount(s) {
-      let n = 0;
-      for (const part of String(s).split(',')) {
+      const ports = new Set();
+      for (const part of String(s).split(/[\s,]+/)) {
         const t = part.trim();
         if (!t) continue;
         const m = /^(\d+)-(\d+)$/.exec(t);
@@ -98,13 +98,16 @@ export default {
           const a = Number(m[1]);
           const b = Number(m[2]);
           if (a < 1 || b > 65535 || a > b) return NaN;
-          n += b - a + 1;
+          for (let p = a; p <= b; p++) {
+            ports.add(p);
+            if (ports.size > MAX_PORTS) return ports.size;
+          }
         } else if (/^\d+$/.test(t)) {
           if (Number(t) < 1 || Number(t) > 65535) return NaN;
-          n += 1;
+          ports.add(Number(t));
         } else return NaN;
       }
-      return n;
+      return ports.size;
     }
 
     wrap.querySelectorAll('.chips .chip').forEach((c) =>
@@ -153,6 +156,7 @@ export default {
       const portsStr = portsEl.value.trim();
       const count = portCount(portsStr);
       if (Number.isNaN(count)) return toast('端口写法不合法，示例：22,80,443 或 1-1024', 'err');
+      if (!count) return toast('请填写端口范围，如 22,80,443 或 1-1024', 'err');
       if (count > MAX_PORTS) {
         return toast(`单次最多扫描 ${MAX_PORTS} 个端口（当前 ${count} 个），请缩小范围`, 'err');
       }

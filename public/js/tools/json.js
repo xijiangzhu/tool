@@ -1,5 +1,5 @@
 /* JSON 格式化 / 压缩 / 校验 */
-import { h, codeBox, fmtBytes } from '../ui.js';
+import { h, codeBox, fmtBytes, esc } from '../ui.js';
 
 const SAMPLE = `{"name":"ops-toolbox","version":1.2,"enabled":true,"tags":["json","format","yaml"],"owner":{"team":"sre","members":[{"name":"张三","role":"admin"},{"name":"李四","role":"viewer"}]},"note":"支持中文与转义"}`;
 
@@ -100,9 +100,9 @@ export default {
       return v === 'tab' ? '\t' : Number(v);
     }
 
-    function showStats(v, extraBytes) {
+    function showStats(v) {
       const s = stats(v);
-      const bytes = extraBytes == null ? new Blob([outBox.getValue()]).size : extraBytes;
+      const bytes = new Blob([outBox.getValue()]).size;
       statBar.style.display = '';
       validityEl.className = 'result-tag ok';
       validityEl.textContent = '合法 JSON';
@@ -111,13 +111,13 @@ export default {
 
     function showError(e) {
       statBar.style.display = 'none';
-      let html = `<div class="alert err">JSON 解析失败：${e.msg}`;
+      let html = `<div class="alert err">JSON 解析失败：${esc(e.msg)}`;
       if (e.line) {
         html += `\n位置：第 ${e.line} 行第 ${e.col} 列`;
         const lines = inBox.getValue().split('\n');
         const l = lines[e.line - 1] || '';
         const caret = ' '.repeat(Math.max(0, Math.min(e.col - 1, l.length))) + '^';
-        html += `\n\n${e.line} | ${l}\n${' '.repeat(String(e.line).length + 3)}${caret}`;
+        html += `\n\n${e.line} | ${esc(l)}\n${' '.repeat(String(e.line).length + 3)}${caret}`;
       }
       html += '</div>';
       msgEl.innerHTML = html.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');

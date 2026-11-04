@@ -127,11 +127,19 @@ export default {
     const opened = socket.opened.catch((e) => {
       openedErr = e;
     });
-    await Promise.race([
-      opened,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), timeoutMs)),
-    ]);
-    if (openedErr) throw openedErr;
+    try {
+      await Promise.race([
+        opened,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), timeoutMs)),
+      ]);
+      if (openedErr) throw openedErr;
+    } catch (e) {
+      // 超时 / 打开失败时必须主动关闭，否则出站连接会一直挂到平台回收
+      try {
+        socket.close();
+      } catch (_) {}
+      throw e;
+    }
 
     const writer = socket.writable.getWriter();
     const reader = socket.readable.getReader();

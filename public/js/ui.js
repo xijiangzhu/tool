@@ -1,9 +1,5 @@
 /* 通用 UI 组件与工具函数 */
 
-/** 服务端运行环境（'node' | 'workers'），由 app.js 根据 /api/health 填充；
-    各工具据此调整自身限制（如端口扫描的端口数上限） */
-export const serverEnv = { runtime: null };
-
 /** 由 HTML 字符串创建 DOM 元素（支持多根节点，会用一个 div 包裹） */
 export function h(html) {
   const tpl = document.createElement('template');

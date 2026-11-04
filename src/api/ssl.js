@@ -6,7 +6,7 @@
 import { ctLookup, formatFingerprint } from '../lib/ct.js';
 import { rawTlsInspect, rawTlsProtocols } from '../lib/rawtls.js';
 import { ssllabsInfo } from '../lib/ssllabs.js';
-import { clamp, isIP } from '../lib/util.js';
+import { clamp, isIP, isPrivateHost } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
 /* 云端结果缓存：公共源都有速率限制，同一主机 10 分钟内直接复用，避免重复外呼与超时 */
@@ -83,6 +83,10 @@ export default async function sslCheck(input) {
       dnsError = `DNS 解析失败：${e.code || e.message}`;
       resolved = [];
     }
+  }
+
+  if (p.limits.blockPrivateHost && resolved.some((ip) => isPrivateHost(ip))) {
+    throw new Error('云端环境禁止连接内网 / 本机地址，SSL 检测请使用公网域名');
   }
 
   const key = `${host}:${port}`;
@@ -191,15 +195,14 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
   ]);
   if (ct && ct.errors) errors.push(...ct.errors);
   const ctData = ct && ct.cert ? ct : null;
-  const labsData = labs;
 
   const live = await liveP;
   const source =
-    [ctData ? `CT 日志（${ctData.cert.source}）` : null, labsData ? 'SSL Labs' : null]
+    [ctData ? `CT 日志（${ctData.cert.source}）` : null, labs ? 'SSL Labs' : null]
       .filter(Boolean)
       .join(' + ') || null;
 
-  if (!ctData && !labsData) {
+  if (!ctData && !labs) {
     return {
       host,
       port,
@@ -240,9 +243,9 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
         authorizationError: null,
         chain: [],
       };
-  if (labsData) {
-    result.protocols = labsData.protocols;
-    result.grade = labsData.grade;
+  if (labs) {
+    result.protocols = labs.protocols;
+    result.grade = labs.grade;
   }
   result.source = source;
   result.resolved = resolved;
@@ -254,7 +257,7 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
 }
 
 /** 公共数据源结果的统一组装：日期、剩余天数、结论状态 */
-function remoteResult({ host, port, meta, chain, protocols, source, grade, ctErrors }) {
+function remoteResult({ host, port, meta, chain, protocols, ctErrors }) {
   const nb = meta.notBefore ? new Date(meta.notBefore) : null;
   const na = meta.notAfter ? new Date(meta.notAfter) : null;
   const { daysLeft, totalDays } = periodFields(nb ? nb.getTime() : null, na ? na.getTime() : null);
@@ -283,10 +286,10 @@ function remoteResult({ host, port, meta, chain, protocols, source, grade, ctErr
     cipher: null,
     chain,
     protocols: protocols || null,
-    grade: grade || null,
+    grade: null,
     checkedAt: new Date().toISOString(),
     mode: 'remote',
-    source,
+    source: null,
     ct: { source: null, total: 0, errors: ctErrors || [] },
   };
 }

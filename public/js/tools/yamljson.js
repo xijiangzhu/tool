@@ -95,6 +95,8 @@ export default {
       outBox.setLang(y2j ? 'json' : 'yaml');
       inBox.setTitle(y2j ? 'YAML 输入' : 'JSON 输入');
       outBox.setTitle(y2j ? 'JSON 输出' : 'YAML 输出');
+      outOpts.download.name = y2j ? 'output.json' : 'output.yaml';
+      outOpts.download.mime = y2j ? 'application/json;charset=utf-8' : 'text/yaml;charset=utf-8';
       wrap.querySelector('#run').textContent = y2j ? '转为 JSON →' : '转为 YAML →';
       wrap.querySelector('#sample').textContent = '示例';
     }

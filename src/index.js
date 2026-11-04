@@ -12,7 +12,7 @@ import httpProxy from './api/http.js';
 import { ipinfo } from './api/ipinfo.js';
 import portscan from './api/portscan.js';
 import ssl from './api/ssl.js';
-import { corsHeaders, json, readJson, textResponse } from './lib/util.js';
+import { json, readJson, textResponse } from './lib/util.js';
 import { isWorkers, platform } from './platform/index.js';
 
 /** 路由表：wrap=false 的接口自带 ok 字段，不再二次包装 */
@@ -42,7 +42,19 @@ export async function handle(request, env = {}, ctx = {}) {
   }
 
   if (pathname.startsWith('/api/')) {
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
+    // 仅允许同源页面调用：避免任意网站借浏览器访问本机 / 云端转发接口
+    const origin = request.headers.get('origin');
+    if (origin) {
+      let sameOrigin = false;
+      try {
+        const url = new URL(request.url);
+        const host = (request.headers.get('host') || url.host).toLowerCase();
+        sameOrigin = new URL(origin).host.toLowerCase() === host;
+      } catch (_) {}
+      if (!sameOrigin) return json({ ok: false, error: '不允许跨源调用接口' }, 403);
+    }
+
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
     const route = ROUTES[pathname];
     if (!route) return json({ ok: false, error: '未知接口' }, 404);
@@ -86,6 +98,7 @@ function isEntryModule() {
 async function startServer() {
   const http = (await import('node:' + 'http')).default;
   const port = Number(process.env.PORT || 3000);
+  const host = process.env.HOST || '127.0.0.1';
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -113,8 +126,8 @@ async function startServer() {
     }
   });
 
-  server.listen(port, () => {
-    console.log(`\n  运维工具箱已启动:  http://localhost:${port}\n`);
+  server.listen(port, host, () => {
+    console.log(`\n  运维工具箱已启动:  http://${host}:${port}\n`);
   });
   return server;
 }

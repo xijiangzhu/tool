@@ -66,6 +66,7 @@ async function detectIpv4(budget = 4500) {
 /** 本机出口：先由浏览器自查 IPv4，服务端查询并行发起，全部就绪后一次性渲染，
  *  避免先显示 IPv6 再跳成 IPv4 的闪烁。 */
 async function myIpInfo() {
+  const started = Date.now();
   const mineP = api('/api/net/ipinfo', { ip: '' });
   const v4 = await detectIpv4(3000);
   const mine = await mineP;
@@ -76,7 +77,17 @@ async function myIpInfo() {
     const r4 = await api('/api/net/ipinfo', { ip: v4 });
     d = r4.ok && r4.data
       ? { ...r4.data, altV6: serverV6 }
-      : { ...d, ip: v4, version: 'IPv4', altV6: serverV6 };
+      : {
+          // 二次查询失败时不能沿用 IPv6 的归属地 / PTR / 十进制等字段
+          ip: v4,
+          version: 'IPv4',
+          scope: null,
+          decimal: null,
+          ptr: null,
+          geo: null,
+          elapsed: Date.now() - started,
+          altV6: serverV6,
+        };
   }
   return d;
 }
