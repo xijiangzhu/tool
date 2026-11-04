@@ -62,7 +62,7 @@ export default {
   mount(root) {
     root.innerHTML = '';
     const wrap = h(`
-      <section class="card">
+      <section class="card markdown-tool">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>Markdown 编辑器</div>
           <div class="row">

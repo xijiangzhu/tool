@@ -177,12 +177,13 @@ export default {
       setBusy(btn, true, '扫描中');
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';
       metaEl.textContent = '';
+      const ports = expandPorts(portsStr);
+      const combined = { host, target: host, scanned: 0, open: [], elapsed: 0, timeout: Number(wrap.querySelector('#timeout').value) };
       try {
-        const ports = expandPorts(portsStr);
-        const combined = { host, target: host, scanned: 0, open: [], elapsed: 0, timeout: Number(wrap.querySelector('#timeout').value) };
         for (let i = 0; i < ports.length; i += BATCH_SIZE) {
           const batch = ports.slice(i, i + BATCH_SIZE);
-          const r = await api('/api/net/portscan', { host, ports: batch.join(','), timeout: combined.timeout });
+          // 锁定首批解析出的 IP，避免域名轮询解析时不同批次扫到不同主机
+          const r = await api('/api/net/portscan', { host: combined.target, ports: batch.join(','), timeout: combined.timeout });
           if (!r.ok) throw new Error(r.error);
           combined.target = r.data.target;
           combined.scanned += r.data.scanned;
@@ -194,7 +195,11 @@ export default {
         combined.open.sort((a, b) => a.port - b.port);
         render(combined);
       } catch (e) {
-        outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
+        if (combined.scanned) {
+          combined.open.sort((a, b) => a.port - b.port);
+          render(combined);
+          outEl.insertAdjacentHTML('afterbegin', `<div class="alert warn">扫描中断：${combined.scanned} / ${ports.length} 个端口已完成。${esc(e.message)}</div>`);
+        } else outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {
         setBusy(btn, false);
       }
