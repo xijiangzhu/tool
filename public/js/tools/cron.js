@@ -398,6 +398,18 @@ export default {
       if (parts.length !== 5) {
         return exprErr.show('Cron 表达式需为 5 位，如 */5 * * * *');
       }
+      for (let i = 0; i < FIELDS.length; i++) {
+        const field = FIELDS[i];
+        for (const item of parts[i].split(',')) {
+          if (item === '*' || item === '?') continue;
+          const base = item.split('/')[0];
+          const values = /^\d+-\d+$/.test(base) ? base.split('-').map(Number) : /^\d+$/.test(base) ? [Number(base)] : [];
+          const invalid = values.find((value) => value < field.min || value > field.max);
+          if (invalid !== undefined) {
+            return exprErr.show(`${field.name}字段的值 ${invalid} 超出有效范围（${field.min}–${field.max}）`);
+          }
+        }
+      }
       exprErr.clear();
       FIELDS.forEach((f, i) => {
         const v = parts[i];

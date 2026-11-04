@@ -1092,12 +1092,14 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 .ip-split-row, .ip-check-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ip-check-row input { flex: 1; min-width: 170px; }
 .ip-check-out {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
   color: var(--muted);
+  margin-top: 8px;
 }
+.ip-check-out:empty { display: none; }
 .ip-page .pane-head { min-height: 34px; padding: 4px 10px 4px 12px; }
 .ip-page .pane-body { padding: 8px 12px; }
 
@@ -1366,7 +1368,19 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
   background: var(--panel-2);
 }
 .ipq-ip { font-size: 18px; font-weight: 700; letter-spacing: .01em; }
+.ipq-version { padding: 2px 7px; border-radius: 10px; background: color-mix(in srgb, var(--accent-soft) 82%, var(--accent) 18%); color: var(--accent-2); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .ipq-head .muted { font-size: 12px; }
+.ipq-out {
+  height: 190px;
+  overflow: auto;
+}
+.ipq-out > .empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+}
+@media (max-width: 760px) { .ipq-out { height: 330px; } }
 .ipq-kv { margin-top: 8px; gap: 6px; }
 .ipq-kv .ip-kv-item {
   display: flex;

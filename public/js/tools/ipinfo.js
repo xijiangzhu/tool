@@ -146,7 +146,7 @@ export default {
           <div class="chips mt10" id="quick">
             ${QUICK.map(([n, v]) => `<span class="chip" data-v="${esc(v)}">${esc(n)}</span>`).join('')}
           </div>
-          <div id="out" class="mt12">
+          <div id="out" class="mt12 ipq-out">
             <div class="empty">输入 IP / 域名后点击「查询」</div>
           </div>
         </div>
@@ -225,17 +225,16 @@ export default {
         ['时区', (g && g.timezone) || '—'],
         ['经纬度', coordText(g)],
         ['反向解析', d.ptr || '—'],
-        ['IP 类型', d.scope ? d.scope.label : '—'],
       ];
       if (d.altV6) rows.push(['IPv6 出口', d.altV6]);
       let meta = `${(g && g.provider) || '归属地信息不可用'} · ${d.elapsed} ms`;
       if (d.altV6) meta += ' · 已优先显示 IPv4';
       else if (d.version === 'IPv6') meta += ' · 未取到 IPv4 出口，可点刷新重试';
-      const badge = d.scope && d.scope.kind === 'public' ? 'ok' : 'warn';
+      const version = d.version || (d.ip && d.ip.includes(':') ? 'IPv6' : 'IPv4');
       pubOutEl.innerHTML = `
         <div class="ipq-head">
           <span class="ipq-ip mono">${esc(d.ip)}</span>
-          <span class="badge ${badge}">${esc(d.scope ? d.scope.label : '未知')}</span>
+          <span class="ipq-version">${esc(version)}</span>
           <span class="muted">${esc(loc)}</span>
           <span class="spacer"></span>
           <span class="muted">${esc(meta)}</span>
@@ -268,14 +267,12 @@ export default {
         ['时区', (g && g.timezone) || '—'],
         ['经纬度', coordText(g)],
         ['反向解析', d.ptr || '—'],
-        ['IP 类型', d.scope ? d.scope.label : '—'],
       ];
-      if (d.version === 'IPv6') kv.push(['地址类型', 'IPv6']);
-      const badge = d.scope && d.scope.kind === 'public' ? 'ok' : 'warn';
+      const version = d.version || (d.ip && d.ip.includes(':') ? 'IPv6' : 'IPv4');
       const head = `
         <div class="ipq-head">
           <span class="ipq-ip mono">${esc(d.ip || '未知')}</span>
-          <span class="badge ${badge}">${esc(d.scope ? d.scope.label : '未知')}</span>
+          ${version ? `<span class="ipq-version">${esc(version)}</span>` : ''}
           <span class="muted">${esc(d.from ? `来自域名 ${d.from}` : loc || '')}</span>
           ${d.altV6 ? `<span class="muted">IPv6 出口 ${esc(d.altV6)}</span>` : ''}
           <span class="spacer"></span>

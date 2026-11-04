@@ -84,7 +84,7 @@ export default {
     const btn = wrap.querySelector('#run');
 
     wrap.querySelector('#portHint').textContent =
-      `单次最多 ${MAX_PORTS} 个端口，支持逗号与区间混写。超时指每个端口等待响应的最长时间，默认 2000 毫秒：内网 300 ~ 500 毫秒即可，跨公网或高丢包建议 2000 以上。注意：部分防火墙会对同源 IP 的高频连接做限速丢包，大范围扫描可能漏报开放端口，有疑问时可用小范围端口重扫验证。`;
+      `单次最多 ${MAX_PORTS} 个端口，支持逗号与区间混写。`;
 
     /** 统计端口写法覆盖的端口数：'80,443' → 2，'1-1024' → 1024；写法非法返回 NaN */
     function portCount(s) {

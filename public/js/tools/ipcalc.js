@@ -1,5 +1,5 @@
 /* IP 子网计算器 */
-import { h, copy, esc, fmtNum, remember, formError } from '../ui.js';
+import { h, esc, fmtNum, remember, formError } from '../ui.js';
 
 const QUICK = ['192.168.1.0/24', '10.0.0.0/8', '172.16.0.0/12', '192.168.10.5/26'];
 
@@ -171,15 +171,6 @@ export default {
       const usableTxt = prefix === 32 ? '1' : prefix === 31 ? '2' : fmtNum(usable);
       const role = prefix === 32 ? '主机地址' : ip === network ? '网络地址' : ip === broadcast ? '广播地址' : '可用主机地址';
 
-      const summary = [
-        `网络地址: ${intToIp(network)}/${prefix}`,
-        `子网掩码: ${intToIp(mask)}`,
-        `广播地址: ${prefix >= 31 ? '—' : intToIp(broadcast)}`,
-        `可用范围: ${intToIp(first)} ~ ${intToIp(last)}`,
-        `可用主机: ${usableTxt}`,
-        `地址总数: ${fmtNum(total)}`,
-      ].join('\n');
-
       outEl.innerHTML = `
         <section class="card">
           <div class="card-head">
@@ -193,7 +184,6 @@ export default {
                 <div class="ip-cidr">${intToIp(network)}<span>/${prefix}</span></div>
               </div>
               <span class="badge ${typeCls} ml-auto">${typeTxt}</span>
-              <button class="btn btn-sm" id="copyAll">复制摘要</button>
             </div>
 
             <div class="ip-kv">
@@ -214,8 +204,8 @@ export default {
                 <div class="ip-check-row">
                   <input type="text" id="chk" class="mono" placeholder="如 192.168.1.100" />
                   <button class="btn" id="chkBtn">判断</button>
-                  <span id="chkOut" class="ip-check-out"></span>
                 </div>
+                <div id="chkOut" class="ip-check-out"></div>
               </div>
             </div>
           </div>
@@ -237,8 +227,6 @@ export default {
           </div>
         </section>
       `;
-
-      outEl.querySelector('#copyAll').addEventListener('click', () => copy(summary, '已复制摘要'));
 
       outEl.querySelector('#split').addEventListener('click', () => {
         const target = outEl.querySelector('#splitOut');
