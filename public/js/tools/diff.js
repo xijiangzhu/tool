@@ -419,6 +419,17 @@ export default {
     const igWs = wrap.querySelector('#igWs');
     const igCase = wrap.querySelector('#igCase');
 
+    /* overscroll-behavior:contain 在框内无可滚内容时会吞掉页面滚轮，
+       仅在结果区真正可滚时启用（与 ui.js codeBox 同一策略） */
+    const syncContain = () => {
+      scrollEl.style.overscrollBehavior =
+        scrollEl.scrollHeight > scrollEl.clientHeight + 1 ? 'contain' : 'auto';
+    };
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(syncContain);
+      ro.observe(scrollEl);
+    }
+
     let fileA = '';
     let fileB = '';
     let patch = '';
@@ -460,6 +471,12 @@ export default {
       linesEl.innerHTML = lb.join('');
       numsEl.innerHTML = nb.join('');
       ta.dataset.contentH = String(count * LH + PAD * 2);
+    }
+
+    function renderPanes() {
+      renderPane('a');
+      renderPane('b');
+      syncContain();
     }
 
     /* 内容较少时把可编辑区撑满容器，点击任意位置都能直接输入 */
@@ -575,8 +592,7 @@ export default {
         blocks = [];
         navIdx = -1;
         patch = '';
-        renderPane('a');
-        renderPane('b');
+        renderPanes();
         statBar.style.display = 'none';
         navInfo.textContent = '共 0 处';
         fitWidth();
@@ -602,8 +618,7 @@ export default {
       blocks = buildBlocks(ops);
       navIdx = -1;
 
-      renderPane('a');
-      renderPane('b');
+      renderPanes();
       fitWidth();
       fitHeights();
 

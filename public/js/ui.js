@@ -394,6 +394,16 @@ export function codeBox(opts = {}) {
     ta.style.height = 'auto';
     ta.style.height = ta.scrollHeight + 'px';
   }
+  /* overscroll-behavior:contain 会在框内无可滚内容时连页面滚轮一起吞掉，
+     因此只在框内真正可滚（scrollHeight 超出）时才启用，其余时候放行滚动链 */
+  function syncContain() {
+    body.style.overscrollBehavior = body.scrollHeight > body.clientHeight + 1 ? 'contain' : 'auto';
+  }
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(syncContain);
+    ro.observe(body);
+    ro.observe(ta);
+  }
   let currentLang = lang;
   let highlighted = false;
 
@@ -440,11 +450,13 @@ export function codeBox(opts = {}) {
   }
   ta.addEventListener('input', () => {
     fit();
+    syncContain();
     syncMeta();
     if (highlighted) renderHighlight();
   });
 
   fit();
+  syncContain();
   syncMeta();
 
   return {
@@ -454,6 +466,7 @@ export function codeBox(opts = {}) {
     setValue(v) {
       ta.value = v;
       fit();
+      syncContain();
       syncMeta();
       if (highlighted) renderHighlight();
     },
