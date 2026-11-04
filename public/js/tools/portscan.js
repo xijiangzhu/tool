@@ -137,7 +137,7 @@ export default {
         ? ''
         : `${d.scanned} 个端口 · ${(d.elapsed / 1000).toFixed(1)} s · 单端口超时 ${d.timeout} ms`;
       const progress = scanning
-        ? `<div class="empty">正在扫描：${d.scanned} / ${total} 个端口，已发现 ${d.open.length} 个开放端口…<br><span class="mono">本批端口：${batch.join(', ')}</span></div>`
+        ? `<div class="empty">正在扫描：${d.scanned} / ${total} 个端口，已发现 ${d.open.length} 个开放端口…<br><span class="mono">已扫描端口：${batch.join(', ')}</span></div>`
         : '';
       const stats = `
         <div class="grid grid-3">
@@ -161,10 +161,16 @@ export default {
               .join('')}
           </table>`
         : scanning
-        ? '<div class="empty mt12">暂未发现开放端口，继续扫描中…</div>'
+        ? ''
         : '<div class="alert ok mt12">未发现开放端口（可能全部被防火墙过滤，或超时时间过短）</div>';
 
-      outEl.innerHTML = `${progress}${stats}
+      if (scanning) {
+        const targetNote = `<div class="note mt12">目标地址：<span class="mono">${esc(d.target)}</span>${d.target !== d.host ? `（${esc(d.host)}）` : ''}</div>`;
+        outEl.innerHTML = `${progress}${d.open.length ? `${targetNote}${body}` : ''}`;
+        return;
+      }
+
+      outEl.innerHTML = `${stats}
         <div class="note mt12">目标地址：<span class="mono">${esc(d.target)}</span>${d.target !== d.host ? `（${esc(d.host)}）` : ''}</div>
         ${body}`;
     }
