@@ -96,8 +96,8 @@ export default {
 
     const editor = codeBox({ height: 'var(--md-h)', placeholder: '在此输入 Markdown…' });
     wrap.querySelector('#editor').appendChild(editor.el);
-    const tab = h(`<div class="seg" id="tab"><button data-v="preview" class="active">预览</button><button data-v="html">HTML</button></div>`);
-    editor.el.querySelector('.out-actions').prepend(tab);
+    const tabGroup = h(`<div class="seg" id="tab"><button data-v="preview" class="active">预览</button><button data-v="html">HTML</button></div>`);
+    editor.el.querySelector('.out-actions').prepend(tabGroup);
     const viewer = wrap.querySelector('#viewer');
     const editorScroll = editor.el.querySelector('.out-body');
     let syncingScroll = false;
@@ -181,7 +181,7 @@ export default {
       timer = setTimeout(render, 180);
     });
 
-    segGroup(tab, (v) => {
+    segGroup(tabGroup, (v) => {
       tab = v;
       render();
     });
