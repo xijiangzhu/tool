@@ -37,7 +37,7 @@ npm run deploy         # 等价于 wrangler deploy
 
 ```jsonc
 {
-  "name": "ops-toolbox",
+  "name": "tool",
   "main": "src/index.js",
   "assets": { "directory": "./public", "binding": "ASSETS" }
 }

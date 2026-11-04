@@ -505,8 +505,11 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
 }
-.markdown-tool #editor .out-bar { height: 42px; min-height: 42px; box-sizing: border-box; }
-.markdown-tool #editor .out-bar .seg button { height: 28px; }
+.markdown-tool .out-bar { height: 42px; min-height: 42px; padding-top: 4px; padding-bottom: 4px; box-sizing: border-box; }
+.markdown-tool .out-bar .seg { height: 30px; box-sizing: border-box; }
+.markdown-tool .out-bar .seg button { height: 22px; }
+.markdown-tool .split > div:last-child .out-box { border: 1px dashed var(--border-strong); }
+.markdown-tool #viewer .md-empty { border: 0; }
 .out-title {
   font-size: 12.5px;
   font-weight: 700;

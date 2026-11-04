@@ -82,6 +82,9 @@ export default {
             <div id="editor" style="padding:0 6px"></div>
             <div style="padding:0 6px">
               <div class="out-box">
+                <div class="out-bar">
+                  <div class="seg" id="tab"><button data-v="preview" class="active">预览</button><button data-v="html">HTML</button></div>
+                </div>
                 <div class="out-body" id="viewer" style="height:var(--md-h);resize:none"></div>
               </div>
             </div>
@@ -96,8 +99,7 @@ export default {
 
     const editor = codeBox({ height: 'var(--md-h)', placeholder: '在此输入 Markdown…' });
     wrap.querySelector('#editor').appendChild(editor.el);
-    const tabGroup = h(`<div class="seg" id="tab"><button data-v="preview" class="active">预览</button><button data-v="html">HTML</button></div>`);
-    editor.el.querySelector('.out-actions').prepend(tabGroup);
+    const tabGroup = wrap.querySelector('#tab');
     const viewer = wrap.querySelector('#viewer');
     const editorScroll = editor.el.querySelector('.out-body');
     let syncingScroll = false;
