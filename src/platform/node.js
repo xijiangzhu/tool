@@ -335,6 +335,13 @@ export default {
       const st = await fs.promises.stat(fileUrl);
       if (!st.isFile()) throw new Error('not a file');
     } catch (_) {
+      // 静态资源（/js/xxx.js、/css/xxx.css 等）不存在就直接 404，不伪装成 SPA 页面；
+      // 只有「看起来是页面路径」的请求才回退 index.html
+      const fallback = new Response('404 Not Found', {
+        status: 404,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+      if (pathname !== '/' && MIME[path.extname(pathname).toLowerCase()]) return fallback;
       fileUrl = new URL('index.html', base); // SPA 回退
     }
 

@@ -224,11 +224,12 @@ export default {
               .map((i) => WEEKDAYS[i])
               .join('、')}）`
           : dow.includes(',')
-          ? dow.split(',').map((x) => WEEKDAYS[Number(x)]).join('、')
+          ? dow.split(',').map((x) => WEEKDAYS[Number(x) % 7]).join('、')
           : dow.includes('-')
-          ? `${WEEKDAYS[Number(dow.split('-')[0])]} 至 ${WEEKDAYS[Number(dow.split('-')[1])]}`
-          : WEEKDAYS[Number(dow)];
-        dayTxt = dayTxt ? `${dayTxt} 且 ${wt}` : wt;
+          ? `${WEEKDAYS[Number(dow.split('-')[0]) % 7]} 至 ${WEEKDAYS[Number(dow.split('-')[1]) % 7]}`
+          : WEEKDAYS[Number(dow) % 7];
+        // 标准 cron 语义：日、星期同时被限定时为「或」（满足其一即执行）
+        dayTxt = dayTxt ? `${dayTxt} 或 ${wt}` : wt;
       }
       if (mon !== '*') dayTxt += (dayTxt ? '（' : '') + listText(mon, FIELDS[3], '') + (dayTxt ? '）' : '');
 
@@ -400,19 +401,22 @@ export default {
       }
       for (let i = 0; i < FIELDS.length; i++) {
         const field = FIELDS[i];
+        // 标准 crontab 的星期字段允许 0-7（7 = 周日），这里放行 7 并在下方归一化为 0-6
+        const hi = field.key === 'dow' ? 7 : field.max;
         for (const item of parts[i].split(',')) {
           if (item === '*' || item === '?') continue;
           const base = item.split('/')[0];
           const values = /^\d+-\d+$/.test(base) ? base.split('-').map(Number) : /^\d+$/.test(base) ? [Number(base)] : [];
-          const invalid = values.find((value) => value < field.min || value > field.max);
+          const invalid = values.find((value) => value < field.min || value > hi);
           if (invalid !== undefined) {
-            return exprErr.show(`${field.name}字段的值 ${invalid} 超出有效范围（${field.min}–${field.max}）`);
+            return exprErr.show(`${field.name}字段的值 ${invalid} 超出有效范围（${field.min}–${hi}）`);
           }
         }
       }
       exprErr.clear();
       FIELDS.forEach((f, i) => {
-        const v = parts[i];
+        let v = parts[i];
+        if (f.key === 'dow') v = normalizeDow(v);
         const s = state[f.key];
         s.spec = [];
         if (v === '*' || v === '?') s.mode = 'every';
@@ -437,6 +441,28 @@ export default {
       renderExpr();
       renderEditor();
       renderNext();
+    }
+
+    /** 星期字段归一化：7 按周日处理；范围含 7 时展开成具体取值列表（如 1-7 → 0,1,2,3,4,5,6） */
+    function normalizeDow(v) {
+      return v
+        .split(',')
+        .map((item) => {
+          if (item === '7') return '0';
+          const m = /^(\d+)-(\d+)$/.exec(item);
+          if (m) {
+            const a = Number(m[1]);
+            const b = Number(m[2]);
+            if (b === 7) {
+              if (a === 0) return '0-6';
+              const values = [];
+              for (let x = a; x <= 7; x++) values.push(x % 7);
+              return [...new Set(values)].sort((x, y) => x - y).join(',');
+            }
+          }
+          return item;
+        })
+        .join(',');
     }
 
     wrap.querySelector('#parse').addEventListener('click', () => {

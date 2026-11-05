@@ -228,7 +228,7 @@ export default {
         });
         box.setValue(text);
         panel.appendChild(box.el);
-        if (isJson) box.el.querySelector('[data-act="hl"]').click();
+        if (isJson) box.setHighlight(true);
       }
       function showHeaders() {
         const rows = Object.entries(res.headers || {})

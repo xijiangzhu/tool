@@ -41,6 +41,12 @@ function normalizeTarget(input) {
   }
   const port = Number(input.port || portFromHost || 443);
   if (!host) throw new Error('请填写域名或 IP');
+  // 中文 / IDN 域名：先转成 punycode（xn-- 前缀），否则 SNI 里发的是非法的 UTF-8 原始字节，握手必然失败
+  if (/[^\x20-\x7e]/.test(host)) {
+    try {
+      host = new URL(`https://${host}`).hostname;
+    } catch (_) {}
+  }
   if (!/^[a-zA-Z0-9.\-_\u4e00-\u9fa5]+$/.test(host)) throw new Error('域名格式不合法');
   if (!(port > 0 && port < 65536)) throw new Error('端口不合法');
   return { host: host.toLowerCase(), port };

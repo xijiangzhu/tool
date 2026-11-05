@@ -17,28 +17,50 @@ export function isIPv4(s) {
 export function isIPv6(s) {
   if (typeof s !== 'string' || !s.includes(':') || !/^[0-9a-fA-F:.]+$/.test(s)) return false;
   if (s.includes(':::')) return false;
-  const parts = s.split('::');
+  // 形如 ::ffff:1.2.3.4 的内嵌 IPv4（仅允许出现在地址尾部）展开成两段 hex 再统一校验；
+  // 中间混写点分十进制、或 IPv4 段超界一律返回 false
+  let core = s;
+  const lastColon = s.lastIndexOf(':');
+  if (lastColon >= 0 && s.slice(lastColon + 1).includes('.')) {
+    const tail = s.slice(lastColon + 1);
+    if (!isIPv4(tail)) return false;
+    core = s.slice(0, lastColon + 1) + v4ToHexPair(tail);
+  }
+  if (core.includes('.')) return false;
+  const parts = core.split('::');
   if (parts.length > 2) return false;
   const groups = (p) => (p ? p.split(':').filter(Boolean) : []);
   const head = groups(parts[0]);
   const tail = parts.length === 2 ? groups(parts[1]) : [];
   const total = head.length + tail.length;
   if (parts.length === 2 ? total > 7 : total !== 8) return false;
-  return [...head, ...tail].every((g) => /^[0-9a-fA-F]{1,4}$/.test(g)) || s.includes('.');
+  return [...head, ...tail].every((g) => /^[0-9a-fA-F]{1,4}$/.test(g));
+}
+
+/** 点分十进制 IPv4 → 两段 hex（1.2.3.4 → 102:304），供 isIPv6 / expandIPv6 使用 */
+function v4ToHexPair(v4) {
+  const [a, b, c, d] = v4.split('.').map(Number);
+  return `${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
 }
 
 export const isIP = (s) => (isIPv4(s) ? 4 : isIPv6(s) ? 6 : 0);
 
 export function expandIPv6(ip) {
-  const [head, tail = ''] = ip.split('::');
+  // 内嵌 IPv4（::ffff:1.2.3.4）先展开成 hex，否则后续按 8 段 hex 处理会出错
+  let s = ip;
+  const lastColon = ip.lastIndexOf(':');
+  if (lastColon >= 0 && ip.slice(lastColon + 1).includes('.') && isIPv4(ip.slice(lastColon + 1))) {
+    s = ip.slice(0, lastColon + 1) + v4ToHexPair(ip.slice(lastColon + 1));
+  }
+  const [head, tail = ''] = s.split('::');
   const h = head ? head.split(':') : [];
   const t = tail ? tail.split(':') : [];
-  if (ip.includes('::')) {
+  if (s.includes('::')) {
     const fill = 8 - h.length - t.length;
     if (fill < 0) return null;
     return [...h, ...new Array(fill).fill('0'), ...t].map((x) => x.padStart(4, '0')).join(':');
   }
-  const parts = ip.split(':');
+  const parts = s.split(':');
   if (parts.length !== 8) return null;
   return parts.map((x) => x.padStart(4, '0')).join(':');
 }
@@ -49,8 +71,18 @@ export function normalizeHost(raw) {
   h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[/?#].*$/, '');
   if (h.includes('@')) h = h.split('@').pop();
   h = h.replace(/^\[|\]$/g, '');
+  // 中文 / IDN 域名转 punycode（new URL 会按 IDNA 规则编码 hostname），失败则由后续字符校验报错
+  if (/[^\x20-\x7e]/.test(h)) {
+    try {
+      h = new URL(`http://${h}`).hostname;
+    } catch (_) {}
+  }
   if (!h) throw new Error('请输入域名或 IP');
   if (h.length > 253) throw new Error('域名过长');
+  // 单一冒号 + 数字结尾说明带的是端口，这里不接收 —— 端口属于「端口范围」输入框
+  if (/^[^ :]+:\d{0,5}$/.test(h)) {
+    throw new Error('请只填写主机名，不要带协议与端口（例如 example.com:8443 应填 example.com）');
+  }
   if (!/^[A-Za-z0-9._:-]+$/.test(h)) throw new Error('域名格式不合法（仅支持字母、数字、点、减号、下划线与冒号）');
   return h;
 }

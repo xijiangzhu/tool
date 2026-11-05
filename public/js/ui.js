@@ -368,6 +368,7 @@ export function codeBox(opts = {}) {
         <span class="out-title"${opts.title ? '' : ' style="display:none"'}>${esc(opts.title || '')}</span>
         <span class="out-meta"></span>
         <span class="out-actions">
+          ${lang && window.Prism && window.Prism.languages[lang] ? '<button class="btn btn-sm btn-ghost" data-act="hl" title="语法高亮开关">高亮</button>' : ''}
           <button class="btn btn-sm btn-ghost" data-act="copy">复制</button>
           ${opts.download ? '<button class="btn btn-sm btn-ghost" data-act="dl">下载</button>' : ''}
         </span>
@@ -404,6 +405,7 @@ export function codeBox(opts = {}) {
   }
   let currentLang = lang;
   let highlighted = false;
+  const hlBtn = el.querySelector('[data-act="hl"]');
 
   function syncMeta() {
     const v = ta.value;
@@ -421,7 +423,21 @@ export function codeBox(opts = {}) {
       } catch (_) {}
     }
   }
+  /** 高亮视图开关：开 = 隐藏可编辑文本框、显示 Prism 高亮的只读 <pre> */
+  function setHighlight(on) {
+    const canHl = !!(currentLang && window.Prism && window.Prism.languages[currentLang]);
+    highlighted = !!on && canHl;
+    if (hlBtn) hlBtn.classList.toggle('active', highlighted);
+    ta.style.display = highlighted ? 'none' : '';
+    pre.style.display = highlighted ? '' : 'none';
+    if (highlighted) {
+      renderHighlight();
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+  }
   el.querySelector('[data-act="copy"]').addEventListener('click', () => copy(ta.value));
+  if (hlBtn) hlBtn.addEventListener('click', () => setHighlight(!highlighted));
   const dlBtn = el.querySelector('[data-act="dl"]');
   if (dlBtn) {
     dlBtn.addEventListener('click', () =>
@@ -452,8 +468,12 @@ export function codeBox(opts = {}) {
     },
     setLang(l) {
       currentLang = l;
-      if (highlighted) renderHighlight();
+      const canHl = !!(currentLang && window.Prism && window.Prism.languages[currentLang]);
+      if (hlBtn) hlBtn.style.display = canHl ? '' : 'none';
+      if (highlighted && !canHl) setHighlight(false);
+      else if (highlighted) renderHighlight();
     },
+    setHighlight,
     setTitle(t) {
       const el2 = el.querySelector('.out-title');
       el2.textContent = t;

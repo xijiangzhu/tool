@@ -519,6 +519,13 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 }
 .out-meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 .out-actions { display: flex; gap: 4px; margin-left: auto; }
+/* codeBox 的「高亮」开关：开启时显示 Prism 高亮的只读视图 */
+.out-actions .btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+.out-actions .btn-ghost.active:hover { background: var(--accent-soft); border-color: var(--accent-2); color: var(--accent-2); }
 .out-body {
   position: relative;
   overflow: auto;

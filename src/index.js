@@ -65,7 +65,7 @@ export async function handle(request, env = {}, ctx = {}) {
       const data = await route.fn(input, { request, env, ctx });
       return json(route.wrap ? { ok: true, data } : data);
     } catch (e) {
-      return json({ ok: false, error: (e && e.message) || String(e) });
+      return json({ ok: false, error: (e && e.message) || String(e) }, 500);
     }
   }
 
