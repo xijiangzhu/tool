@@ -259,7 +259,11 @@ export default {
     /* ------------------------------- IP 查询 ------------------------------- */
     function renderIp(d) {
       const g = d.geo || null;
-      const loc = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : '';
+      // 非公网地址没有归属地：内网显示「本地局域网」，环回 / 链路本地等显示对应类型
+      const scope =
+        d.scope && d.scope.kind !== 'public' && d.scope.kind !== 'unknown' ? d.scope : null;
+      const lanText = scope ? (scope.kind === 'private' ? '本地局域网' : scope.label) : '';
+      const loc = g ? [g.country, g.region, g.city].filter(Boolean).join(' · ') : lanText;
       const kv = [
         ['归属地', loc || '—'],
         ['运营商', (g && g.isp) || '—'],
@@ -276,12 +280,11 @@ export default {
           <span class="muted">${esc(d.from ? `来自域名 ${d.from}` : loc || '')}</span>
           ${d.altV6 ? `<span class="muted">IPv6 出口 ${esc(d.altV6)}</span>` : ''}
           <span class="spacer"></span>
-          <span class="muted">${esc((g && g.provider) || '归属地信息不可用')} · ${d.elapsed} ms</span>
+          <span class="muted">${esc((g && g.provider) || lanText || '归属地信息不可用')} · ${d.elapsed} ms</span>
         </div>`;
-      const extra =
-        !g && d.scope && d.scope.kind !== 'public'
-          ? '<div class="hint">该地址属于内网 / 保留网段，没有公网归属地信息。</div>'
-          : '';
+      const extra = scope
+        ? `<div class="hint">该地址属于${scope.label}网段，没有公网归属地信息。</div>`
+        : '';
       outEl.innerHTML = head + kvGrid(kv) + extra;
     }
 
