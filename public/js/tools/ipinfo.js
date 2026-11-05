@@ -50,44 +50,51 @@ function writeCachedV4(ip) {
   } catch (_) {}
 }
 
-/** 多源并发抢跑：谁先返回合法 IPv4 用谁，避免某个源在特定网络不可达时整体失败 */
-async function detectIpv4(budget = 4000, force = false) {
+/** 多源并发抢跑：谁先返回合法 IPv4 用谁，避免某个源在特定网络不可达时整体失败。
+ *  首次打开是冷连接（DNS / TLS 现场建立，浏览器还在加载页面），一轮抢跑常在预算内无果，
+ *  因此失败后自动再试一轮 —— 第二轮复用已建立的 DNS 缓存，成功率显著提高。 */
+async function detectIpv4(budget = 8000, force = false) {
   if (!force) {
     const cached = readCachedV4();
     if (cached) return cached;
   }
-  const ctrls = [];
-  const tasks = V4_SOURCES.map(async (s) => {
-    const ctrl = new AbortController();
-    ctrls.push(ctrl);
-    const timer = setTimeout(() => ctrl.abort(), budget);
-    try {
-      const res = await fetch(s.url, { signal: ctrl.signal, cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = (await res.text()).trim();
-      const v = s.json || text.startsWith('{') ? JSON.parse(text).ip || '' : text;
-      if (!V4_RE.test(v)) throw new Error('not ipv4');
-      return v;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-  try {
-    const v4 = await Promise.any(tasks);
-    if (V4_RE.test(v4)) {
-      writeCachedV4(v4);
-      return v4;
-    }
-    return null;
-  } catch (_) {
-    return null;
-  } finally {
-    ctrls.forEach((c) => {
+  /** 单轮抢跑：budget 内任一源返回合法 IPv4 即胜出，否则返回 null */
+  async function wave(ms) {
+    const ctrls = [];
+    const tasks = V4_SOURCES.map(async (s) => {
+      const ctrl = new AbortController();
+      ctrls.push(ctrl);
+      const timer = setTimeout(() => ctrl.abort(), ms);
       try {
-        c.abort();
-      } catch (_) {}
+        const res = await fetch(s.url, { signal: ctrl.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = (await res.text()).trim();
+        const v = s.json || text.startsWith('{') ? JSON.parse(text).ip || '' : text;
+        if (!V4_RE.test(v)) throw new Error('not ipv4');
+        return v;
+      } finally {
+        clearTimeout(timer);
+      }
     });
+    try {
+      return await Promise.any(tasks);
+    } catch (_) {
+      return null;
+    } finally {
+      ctrls.forEach((c) => {
+        try {
+          c.abort();
+        } catch (_) {}
+      });
+    }
   }
+  const half = Math.ceil(budget / 2);
+  const v4 = (await wave(half)) || (await wave(half));
+  if (V4_RE.test(v4)) {
+    writeCachedV4(v4);
+    return v4;
+  }
+  return null;
 }
 
 /** 本机出口：先由浏览器自查 IPv4，服务端查询并行发起，全部就绪后一次性渲染，
@@ -96,8 +103,9 @@ async function detectIpv4(budget = 4000, force = false) {
 async function myIpInfo(force = false) {
   const started = Date.now();
   const mineP = api('/api/net/ipinfo', { ip: '' });
-  // 浏览器自查与服务端查询并行；服务端已经给出 IPv4 时无需等它
-  const v4P = detectIpv4(4000, force);
+  // 浏览器自查与服务端查询并行；服务端已经给出 IPv4 时无需等它。
+  // 预算 8s：冷启动下 DNS + TLS 建连慢，4s 常导致探测失败而停留在 IPv6
+  const v4P = detectIpv4(8000, force);
   const mine = await mineP;
   if (!mine.ok) throw new Error(mine.error);
   let d = mine.data || {};
