@@ -74,7 +74,9 @@ export async function ipinfo(input, ctx) {
     geo = await geoLookup('').catch(() => null);
     if (geo && geo.ip) ip = geo.ip;
   }
-  if (!geo) geo = p.cfGeo(ctx.request, ip || null);
+  // request.cf 描述的是本次请求（访问者）的归属地：仅当查询目标为空或公网地址时才可用作兜底，
+  // 否则查内网 IP 会错误返回访问者自己的城市
+  if (!geo && (!ip || !isPrivateHost(ip))) geo = p.cfGeo(ctx.request, ip || null);
 
   const ptr = ip && !isPrivateHost(ip) ? await p.reverseLookup(ip).catch(() => null) : null;
 
