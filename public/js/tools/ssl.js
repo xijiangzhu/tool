@@ -153,7 +153,7 @@ export default {
                   ? '—'
                   : d.daysLeft < 0
                   ? `已过期 ${Math.abs(d.daysLeft)} 天`
-                  : `剩余 ${d.daysLeft} 天（总有效期 ${d.totalDays} 天）`
+                  : `剩余 ${d.daysLeft} 天（总有效期 ${d.totalDays ?? '-'} 天）`
               }</span>
               <span class="spacer"></span>
               <span class="out-meta">解析 IP：${esc((d.resolved || []).join(', ') || '-')}${d.cached ? ' · 10 分钟内缓存' : ''}</span>

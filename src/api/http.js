@@ -57,6 +57,7 @@ export default async function httpProxy(input) {
         headers,
         body: BODY_METHODS.includes(method) ? bodyStr : '',
         timeoutMs,
+        maxBytes: MAX_BODY, // 到 1MB 即断流，避免平台层无限缓冲整个响应
       });
 
       const loc = headerOf(res.headers, 'location');
@@ -94,7 +95,8 @@ export default async function httpProxy(input) {
 function finish(res, ctx) {
   const { startAll, currentUrl, method, redirects, headers, bodyStr, input } = ctx;
   const bytes = res.bytes || new Uint8Array(0);
-  const truncated = bytes.length > MAX_BODY;
+  // 平台层已按 MAX_BODY 断流时 bytes.length 恰好等于 MAX_BODY，须用平台层返回的 truncated 标记
+  const truncated = res.truncated === true || bytes.length > MAX_BODY;
   const view = truncated ? bytes.subarray(0, MAX_BODY) : bytes;
   const ctype = headerOf(res.headers, 'content-type') || '';
   const textual = isTextualType(ctype) || view.length === 0;

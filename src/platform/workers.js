@@ -64,29 +64,60 @@ export default {
     return dohReverse(ip);
   },
 
-  /** 单次 HTTP 请求（不跟随重定向） */
-  async httpSend({ url, method, headers, body, timeoutMs }) {
+  /** 单次 HTTP 请求（不跟随重定向）；maxBytes 限制响应体读取上限（防大响应撑爆 Worker 内存） */
+  async httpSend({ url, method, headers, body, timeoutMs, maxBytes }) {
     const init = { method, headers, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) };
     if (body && !['GET', 'HEAD'].includes(method)) init.body = body;
     const t0 = Date.now();
     const res = await fetch(url, init);
     const ttfb = Date.now() - t0;
     let bytes;
+    let truncated = false;
     try {
-      bytes = new Uint8Array(await res.arrayBuffer());
+      if (maxBytes > 0 && res.body) {
+        // 增量读取：达到上限立即 cancel 流，避免 arrayBuffer() 把整个响应读进内存
+        const reader = res.body.getReader();
+        const parts = [];
+        let total = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parts.push(value);
+          total += value.length;
+          if (total >= maxBytes) {
+            truncated = true;
+            try { await reader.cancel(); } catch (_) {}
+            break;
+          }
+        }
+        bytes = new Uint8Array(Math.min(total, maxBytes));
+        let off = 0;
+        for (const part of parts) {
+          if (off >= bytes.length) break;
+          bytes.set(part.subarray(0, bytes.length - off), off);
+          off += Math.min(part.length, bytes.length - off);
+        }
+      } else {
+        bytes = new Uint8Array(await res.arrayBuffer());
+      }
     } catch (_) {
       bytes = new Uint8Array(0);
     }
     const out = {};
     res.headers.forEach((v, k) => {
+      // set-cookie 单独处理：逗号拼接会把 Expires 里的逗号截断，用 getSetCookie 保留每条独立
+      if (k === 'set-cookie') return;
       out[k] = out[k] ? `${out[k]}, ${v}` : v;
     });
+    const setCookies = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
+    if (setCookies.length) out['set-cookie'] = setCookies;
     return {
       status: res.status,
       statusText: res.statusText || '',
       httpVersion: null, // 平台不暴露 HTTP 版本
       headers: out,
       bytes,
+      truncated, // 未读完整响应时为 true（response 可能无 body：null 走 arrayBuffer 分支不置位）
       timings: { dns: null, tcp: null, tls: null, ttfb },
       location: res.headers.get('location'),
     };

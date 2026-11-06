@@ -46,23 +46,26 @@ function normalizeTarget(input) {
     try {
       host = new URL(`https://${host}`).hostname;
     } catch (_) {}
+    // 转换失败会原样保留非 ASCII 字符，不能再放行（正则已收紧为 ASCII）：直接报错
   }
-  if (!/^[a-zA-Z0-9.\-_\u4e00-\u9fa5]+$/.test(host)) throw new Error('域名格式不合法');
+  if (!/^[a-zA-Z0-9.\-_]+$/.test(host)) throw new Error('域名格式不合法');
   if (!(port > 0 && port < 65536)) throw new Error('端口不合法');
   return { host: host.toLowerCase(), port };
 }
 
-/** 有效期 / 主机名匹配 → 结论状态 */
+/** 有效期 / 主机名匹配 → 结论状态
+ *  优先级：已过期 / 未生效（不可恢复的硬伤）> 域名不匹配 > 自签 > 不受信任 > 即将到期 > 有效
+ *  此前 mismatch 会无条件覆盖 expired，让「过期且不匹配」只显示域名不匹配，误导用户 */
 function computeStatus({ notBefore, notAfter, daysLeft, hostMatch, selfSigned, authorized, authorizationError, known = true }) {
   const now = Date.now();
-  let status = known ? 'valid' : 'unknown';
-  if (!known) return status;
+  if (!known) return 'unknown';
+  let status = 'valid';
   if (notAfter && notAfter < now) status = 'expired';
   else if (notBefore && notBefore > now) status = 'notyet';
-  else if (daysLeft !== null && daysLeft <= 30) status = 'expiring';
-  if (hostMatch === false) status = 'mismatch';
+  else if (hostMatch === false) status = 'mismatch';
   else if (selfSigned) status = 'selfsigned';
-  if (!authorized && authorizationError && status === 'valid') status = 'untrusted';
+  else if (!authorized && authorizationError) status = 'untrusted';
+  else if (daysLeft !== null && daysLeft <= 30) status = 'expiring';
   return status;
 }
 

@@ -23,11 +23,14 @@ function maskOf(p) {
 }
 function typeOf(intIp) {
   const eq = (base, prefix) => (intIp & maskOf(prefix)) >>> 0 === (ipToInt(base) & maskOf(prefix)) >>> 0;
+  if (eq('0.0.0.0', 8)) return ['保留地址', 'mute'];
   if (eq('10.0.0.0', 8) || eq('172.16.0.0', 12) || eq('192.168.0.0', 16)) return ['私有地址', 'info'];
   if (eq('100.64.0.0', 10)) return ['运营商级 NAT', 'info'];
   if (eq('127.0.0.0', 8)) return ['回环地址', 'mute'];
   if (eq('169.254.0.0', 16)) return ['链路本地', 'warn'];
   if (eq('224.0.0.0', 4)) return ['组播地址', 'mute'];
+  // 240.0.0.0/4 为保留网段，含受限广播地址 255.255.255.255
+  if (eq('240.0.0.0', 4)) return ['保留地址', 'mute'];
   return ['公网地址', 'ok'];
 }
 

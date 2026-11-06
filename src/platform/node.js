@@ -158,8 +158,8 @@ export default {
     return null;
   },
 
-  /** 单次 HTTP 请求（不跟随重定向），返回原始字节与分段耗时 */
-  async httpSend({ url, method, headers, body, timeoutMs }) {
+  /** 单次 HTTP 请求（不跟随重定向），返回原始字节与分段耗时；maxBytes 限制响应体读取上限（防大文件撑爆内存） */
+  async httpSend({ url, method, headers, body, timeoutMs, maxBytes }) {
     const { http, https } = await libs();
     const target = new URL(url);
     const isHttps = target.protocol === 'https:';
@@ -170,8 +170,28 @@ export default {
     if (body && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       outHeaders['Content-Length'] = Buffer.byteLength(body, 'utf8');
     }
+    const limit = maxBytes > 0 ? maxBytes : Infinity;
 
     return new Promise((resolve, reject) => {
+      const chunks = [];
+      let got = 0;
+      let truncated = false;
+      let settled = false;
+      const settle = (ok, v) => {
+        if (!settled) {
+          settled = true;
+          ok ? resolve(v) : reject(v);
+        }
+      };
+      const result = (res) => ({
+        status: res.statusCode,
+        statusText: res.statusMessage || '',
+        httpVersion: res.httpVersion,
+        headers: res.headers,
+        bytes: Buffer.concat(chunks),
+        truncated, // 达到 maxBytes 后主动断流，供上层展示「已截断」
+        timings,
+      });
       const req = lib.request(
         {
           method,
@@ -183,18 +203,21 @@ export default {
         },
         (res) => {
           timings.ttfb = now() - t0;
-          const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () =>
-            resolve({
-              status: res.statusCode,
-              statusText: res.statusMessage || '',
-              httpVersion: res.httpVersion,
-              headers: res.headers,
-              bytes: Buffer.concat(chunks),
-              timings,
-            })
-          );
+          res.on('data', (c) => {
+            const room = limit - got;
+            if (room <= 0) return;
+            const piece = c.length > room ? c.subarray(0, room) : c;
+            chunks.push(piece);
+            got += piece.length;
+            if (got >= limit) {
+              truncated = true;
+              res.destroy(); // 达到上限立即断流，不再读入后续字节
+            }
+          });
+          res.on('end', () => settle(true, result(res)));
+          // 主动截断销毁连接时 'end' 不触发，由 close/error 收尾，避免 Promise 永远 pending
+          res.on('close', () => { if (truncated) settle(true, result(res)); });
+          res.on('error', () => settle(truncated, truncated ? result(res) : new Error('响应读取失败')));
         }
       );
 
@@ -204,7 +227,10 @@ export default {
         socket.on('secureConnect', () => (timings.tls = now() - t0));
       });
       req.setTimeout(timeoutMs, () => req.destroy(new Error(`请求超时（${timeoutMs}ms）`)));
-      req.on('error', reject);
+      req.on('error', (e) => {
+        if (truncated) settle(true, result(req.res || { statusCode: 0, headers: {} }));
+        else settle(false, e);
+      });
       if (body) req.write(body);
       req.end();
     });

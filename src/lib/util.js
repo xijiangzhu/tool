@@ -102,20 +102,21 @@ export function isPrivateHost(host) {
       (a === 100 && b >= 64 && b <= 127)
     );
   }
-  const low = host.toLowerCase();
+  // 统一展开再判断：0:0:0:0:0:0:0:1 与 ::1 是同一个环回地址，展开写法此前会被误判为公网
+  const low = (expandIPv6(host) || host).toLowerCase();
   // IPv4-mapped IPv6（::ffff:127.0.0.1 / ::ffff:7f00:1）按内嵌的 IPv4 判断
-  const mapped = /^::ffff:(.+)$/.exec(low);
+  const mapped = /^0000:0000:0000:0000:0000:ffff:(.{4}:.{4})$/.exec(low);
   if (mapped) {
-    const tail = mapped[1];
-    if (isIPv4(tail)) return isPrivateHost(tail);
-    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
-    if (hex) {
-      const hi = parseInt(hex[1], 16);
-      const lo = parseInt(hex[2], 16);
-      return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-    }
+    const hi = parseInt(mapped[1].slice(0, 4), 16);
+    const lo = parseInt(mapped[1].slice(5, 9), 16);
+    return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
   }
-  return low === '::1' || /^f[cd]/.test(low) || /^fe[89ab]/.test(low);
+  const loopback = /^0000:0000:0000:0000:0000:0000:0000:0001$/;
+  return (
+    loopback.test(low) ||
+    /^f[cd]/.test(low) ||
+    /^fe[89ab]/.test(low)
+  );
 }
 
 /** 判断 IP 的用途类型（内网 / 环回 / 保留 …） */
@@ -134,11 +135,19 @@ export function ipScope(ip) {
     return { kind: 'public', label: '公网地址' };
   }
   if (v === 6) {
-    const low = ip.toLowerCase();
-    if (low === '::1') return { kind: 'loopback', label: '本机环回' };
+    // 统一展开再判断：0:0:0:0:0:0:0:1 与 ::1 是同一地址，::ffff:x.x.x.x 按内嵌 IPv4 判断
+    const low = (expandIPv6(ip) || ip).toLowerCase();
+    const mapped = /^0000:0000:0000:0000:0000:ffff:(.{4}:.{4})$/.exec(low);
+    if (mapped) {
+      const hi = parseInt(mapped[1].slice(0, 4), 16);
+      const lo = parseInt(mapped[1].slice(5, 9), 16);
+      return ipScope(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    if (/^0000:0000:0000:0000:0000:0000:0000:0001$/.test(low)) return { kind: 'loopback', label: '本机环回' };
     if (/^f[cd]/.test(low)) return { kind: 'private', label: 'IPv6 唯一本地' };
     if (/^fe[89ab]/.test(low)) return { kind: 'linklocal', label: '链路本地' };
     if (/^ff/.test(low)) return { kind: 'multicast', label: '组播地址' };
+    if (/^0000:0000:0000:0000:0000:0000:0000:0000$/.test(low)) return { kind: 'reserved', label: '保留地址' };
     return { kind: 'public', label: '公网地址' };
   }
   return { kind: 'unknown', label: '未知' };
@@ -243,10 +252,30 @@ export function textResponse(body, status = 200) {
 
 /** 读取并解析 JSON 请求体（两种运行时通用） */
 export async function readJson(request) {
+  // 声明内容长度先拦一道
   const len = Number(request.headers.get('content-length') || 0);
   if (len > MAX_BODY) throw new Error('请求体过大（上限 5MB）');
-  const raw = await request.text();
-  if (raw.length > MAX_BODY) throw new Error('请求体过大（上限 5MB）');
+  let raw = '';
+  if (request.body && typeof request.body.getReader === 'function') {
+    // 流式增量读取：分块传输不带 content-length，不能先全量收完再查，超限立即取消
+    const reader = request.body.getReader();
+    const dec = new TextDecoder('utf-8', { fatal: false });
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_BODY) {
+        try { await reader.cancel(); } catch (_) {}
+        throw new Error('请求体过大（上限 5MB）');
+      }
+      raw += dec.decode(value, { stream: true });
+    }
+    raw += dec.decode();
+  } else {
+    raw = await request.text();
+    if (raw.length > MAX_BODY) throw new Error('请求体过大（上限 5MB）');
+  }
   if (!raw) return {};
   try {
     return JSON.parse(raw);

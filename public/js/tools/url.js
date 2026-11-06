@@ -169,18 +169,28 @@ export default {
       parseOut.querySelectorAll('.del').forEach((btn) =>
         btn.addEventListener('click', () => {
           const row = btn.closest('tr');
-          const k = row.querySelector('.pv').dataset.k;
-          parsed.searchParams.delete(k);
+          row.remove();
+          rebuildParams();
           syncInput();
           renderParse();
         })
       );
       parseOut.querySelectorAll('.pv').forEach((ipt) =>
         ipt.addEventListener('input', () => {
-          parsed.searchParams.set(ipt.dataset.k, ipt.value);
+          rebuildParams();
           syncInput();
         })
       );
+    }
+
+    // 按当前行序重建查询串：URLSearchParams.set/delete 会合并同名参数、丢失重复键，这里逐行 append 保序保重
+    function rebuildParams() {
+      const sp = new URLSearchParams();
+      parseOut.querySelectorAll('#paramList tr[data-i]').forEach((tr) => {
+        const ipt = tr.querySelector('.pv');
+        if (ipt) sp.append(ipt.dataset.k, ipt.value);
+      });
+      parsed.search = sp.toString() ? `?${sp.toString()}` : '';
     }
 
     function syncInput() {

@@ -79,7 +79,8 @@ export default {
     wrap.querySelectorAll('#quick .chip').forEach((c) =>
       c.addEventListener('click', () => {
         nameEl.value = c.dataset.h;
-        wrap.querySelector('#type').value = c.dataset.h.includes(':') ? 'PTR' : 'A';
+        // 填的是 IP（IPv4 或 IPv6）都用 PTR 反查；查 A/AAAA 记录只会得到 NXDOMAIN
+        wrap.querySelector('#type').value = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]+:[0-9a-fA-F:]+)$/.test(c.dataset.h) ? 'PTR' : 'A';
         run();
       })
     );

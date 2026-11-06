@@ -101,9 +101,27 @@ async function startServer() {
   const host = process.env.HOST || '127.0.0.1';
 
   const server = http.createServer(async (req, res) => {
+    req.on('error', () => {}); // 超限/客户端中断销毁请求流时避免未处理 error 事件
     try {
+      // 请求体累计上限 5MB（与 util.js readJson 的 MAX_BODY 一致），超限提前断流并返回 413
+      const MAX_REQ_BYTES = 5 * 1024 * 1024;
       const chunks = [];
-      for await (const chunk of req) chunks.push(chunk);
+      let total = 0;
+      let tooLarge = false;
+      for await (const chunk of req) {
+        total += chunk.length;
+        if (total > MAX_REQ_BYTES) {
+          tooLarge = true;
+          break;
+        }
+        chunks.push(chunk);
+      }
+      if (tooLarge) {
+        req.destroy();
+        res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('413 请求体过大（上限 5MB）');
+        return;
+      }
       const raw = chunks.length ? Buffer.concat(chunks) : undefined;
 
       const url = `http://${req.headers.host || `localhost:${port}`}${req.url}`;

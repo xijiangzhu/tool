@@ -559,11 +559,17 @@ export async function rawTlsInspect(host, port, servername, timeoutMs = 8000) {
       let buf = concat(pending, chunk);
       pending = new Uint8Array(0);
       // 只关心握手记录（0x16），其余（alert 0x15 除外）跳过
-      while (buf.length >= 5 && alert == null) {
+      while (buf.length > 0 && alert == null) {
+        if (buf.length < 5) {
+          // 不足一条记录头（5 字节）：整个分片留到下一次，否则字节丢失、后续解析错位
+          pending = buf;
+          buf = new Uint8Array(0);
+          break;
+        }
         const type = buf[0];
         const len = (buf[3] << 8) | buf[4];
         if (buf.length < 5 + len) {
-          pending = buf.slice();
+          pending = buf;
           break;
         }
         const payload = buf.subarray(5, 5 + len);
@@ -654,11 +660,17 @@ async function probeVersion(host, port, servername, version, timeoutMs) {
       if (!chunk) break;
       let buf = concat(pending, chunk);
       pending = new Uint8Array(0);
-      while (buf.length >= 5) {
+      while (buf.length > 0) {
+        if (buf.length < 5) {
+          // 不足一条记录头（5 字节）：留到下一片，避免字节丢失
+          pending = buf;
+          buf = new Uint8Array(0);
+          break;
+        }
         const type = buf[0];
         const len = (buf[3] << 8) | buf[4];
         if (buf.length < 5 + len) {
-          pending = buf.slice();
+          pending = buf;
           break;
         }
         const payload = buf.subarray(5, 5 + len);
