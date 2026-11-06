@@ -15,6 +15,8 @@ import ipcalc from './tools/ipcalc.js';
 import dnsTool from './tools/dns.js';
 import portscan from './tools/portscan.js';
 import ipinfo from './tools/ipinfo.js';
+import regexTool from './tools/regex.js';
+import yamlTool from './tools/yaml.js';
 
 const svg = (inner) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -32,6 +34,8 @@ const ICONS = {
   diff: svg('<rect x="3" y="4" width="7.2" height="16" rx="1.8"/><rect x="13.8" y="4" width="7.2" height="16" rx="1.8"/><path d="M5.4 9.5h2.4M5.4 13h2.4M16.2 9.5h2.4M16.2 13h2.4M16.2 16.5h2.4"/>'),
   ssl: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'),
   http: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/>'),
+  regex: svg('<path d="M5 20.5 8.2 3.5"/><path d="M18.9 20.5 15.7 3.5"/><path d="M12 7.6v5.6"/><path d="M9.3 8.8l5.4 3"/><path d="M14.7 8.8l-5.4 3"/><circle cx="12" cy="17.2" r="1.3" fill="currentColor" stroke="none"/>'),
+  yaml: svg('<rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1.8"/>'),
   ipcalc: svg('<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-4h14v4M12 8v8"/>'),
 };
 
@@ -46,6 +50,8 @@ const TOOLS = [
   timestamp,
   json,
   markdown,
+  regexTool,
+  yamlTool,
   diffTool,
   base64,
   urlTool,
@@ -86,6 +92,16 @@ try {
   collapsedGroups = new Set(JSON.parse(localStorage.getItem(NAV_KEY) || '[]'));
 } catch (_) {}
 const saveCollapsed = () => localStorage.setItem(NAV_KEY, JSON.stringify([...collapsedGroups]));
+// 从未调整过折叠的用户：默认收起未激活分组，避免 15 个工具把侧栏撑出滚动条；
+// 手动折叠/展开过一次后此默认不再生效（collapsedGroups 已持久化）
+if (!localStorage.getItem(NAV_KEY)) {
+  const activeId = (location.hash || '').replace('#/', '') || TOOLS[0].id;
+  const activeGroup = TOOLS.find((t) => t.id === activeId)?.group;
+  GROUPS.forEach((g) => {
+    if (g !== activeGroup) collapsedGroups.add(g);
+  });
+  saveCollapsed();
+}
 
 function buildNav() {
   navEl.innerHTML = '';
