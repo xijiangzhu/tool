@@ -56,7 +56,7 @@ export default {
         </div>
       </section>
 
-      <section class="card">
+      <section class="card" id="resultCard" style="display:none">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>解析结果</div>
           <div class="card-note" id="meta"></div>
@@ -74,6 +74,7 @@ export default {
     const nameErr = formError(wrap.querySelector('.field-row'), nameEl);
     const outEl = wrap.querySelector('#out');
     const metaEl = wrap.querySelector('#meta');
+    const resultCard = wrap.querySelector('#resultCard');
     const btn = wrap.querySelector('#run');
 
     wrap.querySelectorAll('#quick .chip').forEach((c) =>
@@ -130,6 +131,7 @@ export default {
       const name = nameEl.value.trim();
       if (!name) return nameErr.show('请输入要查询的域名或 IP');
       nameErr.clear();
+      resultCard.style.display = ''; // 结果卡片只在发起查询后出现
       setBusy(btn, true, '查询中');
       outEl.innerHTML = '<div class="empty">正在查询…</div>';
       metaEl.textContent = '';

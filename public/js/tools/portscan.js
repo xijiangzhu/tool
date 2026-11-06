@@ -61,7 +61,7 @@ export default {
         </div>
       </section>
 
-      <section class="card">
+      <section class="card" id="resultCard" style="display:none">
         <div class="card-head">
           <div class="card-title"><span class="dot"></span>扫描结果</div>
           <div class="card-note" id="meta"></div>
@@ -81,6 +81,7 @@ export default {
     const portsErr = formError(portsEl, portsEl);
     const outEl = wrap.querySelector('#out');
     const metaEl = wrap.querySelector('#meta');
+    const resultCard = wrap.querySelector('#resultCard');
     const btn = wrap.querySelector('#run');
 
     wrap.querySelector('#portHint').textContent =
@@ -187,6 +188,7 @@ export default {
       }
       hostErr.clear();
       portsErr.clear();
+      resultCard.style.display = ''; // 结果卡片只在发起扫描后出现
       setBusy(btn, true, '扫描中');
       outEl.innerHTML = '<div class="empty">正在探测端口，请稍候…</div>';
       metaEl.textContent = '';
