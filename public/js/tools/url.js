@@ -9,6 +9,14 @@ export default {
   keywords: 'url 编码 解码 encodeURIComponent percent query',
   mount(root) {
     root.innerHTML = '';
+    /* 示例：一键填入并切到对应模式，便于快速理解两种口径的差异 */
+    const EXAMPLES = [
+      { label: '中文参数值', m: 'encode', s: 'component', v: '运维工具箱' },
+      { label: '整条 URL', m: 'encode', s: 'whole', v: 'https://example.com/?q=运维工具箱&page=1' },
+      { label: '已编码中文（反解码）', m: 'decode', s: 'component', v: '%E8%BF%90%E7%BB%B4%E5%B7%A5%E5%85%B7%E7%AE%B1' },
+      { label: '结构字符对比', m: 'encode', s: 'whole', v: 'a=运维&b=/q?x=1&c=#z' },
+    ];
+    const PARSE_EXAMPLE = 'https://example.com/api/v1/list?keyword=运维工具箱&page=2&tag=a&tag=b#结果';
     const wrap = h(`
       <section class="card">
         <div class="card-head">
@@ -30,6 +38,9 @@ export default {
             <button class="btn btn-sm btn-ghost" id="clear">清空</button>
             <button class="btn btn-sm btn-primary" id="run">转换</button>
           </div>
+          <div class="chips mt8" id="encExamples">
+            ${EXAMPLES.map((e) => `<span class="chip" data-m="${e.m}" data-s="${e.s}" data-v="${esc(e.v)}">${e.label}</span>`).join('')}
+          </div>
           <div class="split">
             <div id="in"></div>
             <div id="out"></div>
@@ -48,6 +59,9 @@ export default {
             <input type="text" id="parseInput" placeholder="https://example.com/api/v1/list?keyword=运维&page=2" />
             <button class="btn btn-primary" id="parse">解析</button>
             <button class="btn" id="copyUrl">复制 URL</button>
+          </div>
+          <div class="chips mt8" id="parseExamples">
+            <span class="chip" data-v="${esc(PARSE_EXAMPLE)}">示例：中文 + 重复参数 + 锚点</span>
           </div>
           <div id="parseOut" class="mt12"><div class="empty">解析结果将显示在这里</div></div>
         </div>
@@ -76,11 +90,25 @@ export default {
       syncTitles();
       run();
     });
-    segGroup(wrap.querySelector('#scope'), (v) => {
+    const scopeSeg = segGroup(wrap.querySelector('#scope'), (v) => {
       scope = v;
       syncTitles();
       run();
     });
+
+    // 点击示例：自动切到该示例对应的模式与口径，填入内容并立即转换
+    wrap.querySelectorAll('#encExamples .chip').forEach((c) =>
+      c.addEventListener('click', () => {
+        mode = c.dataset.m;
+        scope = c.dataset.s;
+        modeSeg.set(mode);
+        scopeSeg.set(scope);
+        syncTitles();
+        inBox.setValue(c.dataset.v);
+        outBox.setValue('');
+        run();
+      })
+    );
 
     function run() {
       msgEl.innerHTML = '';
@@ -212,6 +240,14 @@ export default {
 
     wrap.querySelector('#parse').addEventListener('click', doParse);
     parseInput.addEventListener('keydown', (e) => e.key === 'Enter' && doParse());
+
+    // 解析示例：填入演示 URL（含中文参数、重复参数、锚点）并自动解析
+    wrap.querySelectorAll('#parseExamples .chip').forEach((c) =>
+      c.addEventListener('click', () => {
+        parseInput.value = c.dataset.v;
+        doParse();
+      })
+    );
 
     wrap.querySelector('#copyUrl').addEventListener('click', () => {
       const v = parseInput.value.trim();
