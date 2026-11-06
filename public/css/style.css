@@ -1431,6 +1431,7 @@ pre[class*="language-"], code[class*="language-"] { background: none; }
 .mt12 { margin-top: 12px; }
 .mt10 { margin-top: 10px; }
 .mt8 { margin-top: 8px; }
+.mb12 { margin-bottom: 12px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 

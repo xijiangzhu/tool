@@ -38,7 +38,7 @@ export default {
             <button class="btn btn-sm btn-ghost" id="clear">清空</button>
             <button class="btn btn-sm btn-primary" id="run">转换</button>
           </div>
-          <div class="chips mt8" id="encExamples">
+          <div class="chips mt8 mb12" id="encExamples">
             ${EXAMPLES.map((e) => `<span class="chip" data-m="${e.m}" data-s="${e.s}" data-v="${esc(e.v)}">${e.label}</span>`).join('')}
           </div>
           <div class="split">
