@@ -137,7 +137,7 @@ export default {
       <div class="modal-mask" id="cheatMask" style="display:none">
         <div class="modal-box cheat" role="dialog" aria-modal="true" aria-label="常用正则语法">
           <div class="modal-head">
-            <div class="card-title"><span class="dot"></span>常用语法</div>
+            <div class="card-title"><span class="dot"></span>常用语法<span class="card-note" style="font-weight:400">点击插入不关窗，插错可撤销</span></div>
             <button class="btn btn-sm btn-ghost" id="cheatClose">关闭</button>
           </div>
           <div class="modal-body">
@@ -157,6 +157,12 @@ export default {
               ).join('')}
             </table>
           </div>
+          <div style="border-top:1px solid var(--border); padding:9px 16px; display:flex; gap:8px; align-items:center;">
+            <span class="card-note">当前正则</span>
+            <code class="mono" id="cheatEcho" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px;">（空）</code>
+            <button class="btn btn-sm btn-ghost" id="cheatUndo" title="删掉上一次插入的语法">撤销</button>
+            <button class="btn btn-sm btn-ghost" id="cheatClear" title="清空正则输入框">清空</button>
+          </div>
         </div>
       </div>
     `);
@@ -165,6 +171,7 @@ export default {
     const patternEl = wrap.querySelector('#pattern');
     remember(patternEl, 'regex.pattern');
     const resultCard = wrap.querySelector('#resultCard');
+    const cheatEcho = wrap.querySelector('#cheatEcho');
     const textBox = codeBox({ title: '测试文本', height: '200px', placeholder: '粘贴要匹配的文本…' });
     wrap.querySelector('#text').appendChild(textBox.el);
     const viewEl = wrap.querySelector('#view');
@@ -257,6 +264,8 @@ export default {
     function run() {
       let text = textBox.getValue();
       msgEl.innerHTML = '';
+      // 速查弹窗底部的回显：插入语法时弹窗不关，靠它确认当前拼出的正则
+      cheatEcho.textContent = patternEl.value || '（空）';
       // 正则为空时整个「匹配结果」卡片都不显示；一旦有输入（含报错）即出现
       const hasPattern = normalizeInput(patternEl.value).source.trim() !== '';
       resultCard.style.display = hasPattern ? '' : 'none';
@@ -349,6 +358,8 @@ export default {
       if (!wrap.isConnected) return;
       if (e.key === 'Escape' && cheatMask.style.display !== 'none') closeCheat();
     });
+    // 本弹窗内的插入记录：用于「撤销」逐步回退（弹窗遮挡输入框，只能在这里纠错）
+    const insertStack = [];
     cheatMask.querySelectorAll('td.syn').forEach((td) =>
       td.addEventListener('click', () => {
         const s = td.dataset.syn;
@@ -356,12 +367,33 @@ export default {
         const end = patternEl.selectionEnd ?? start;
         patternEl.value = patternEl.value.slice(0, start) + s + patternEl.value.slice(end);
         const caret = start + s.length;
-        closeCheat();
-        patternEl.focus();
+        // 保持弹窗打开：连续插入多个语法时不必反复开关；光标停在插入位置之后
+        insertStack.push({ at: start, text: s });
         patternEl.setSelectionRange(caret, caret);
         patternEl.dispatchEvent(new Event('input', { bubbles: true }));
       })
     );
+
+    /** 撤销上一次插入：只在插入内容仍原样留在原位时才删，避免误伤后续修改 */
+    wrap.querySelector('#cheatUndo').addEventListener('click', () => {
+      const last = insertStack.pop();
+      if (!last) return;
+      const v = patternEl.value;
+      if (v.slice(last.at, last.at + last.text.length) !== last.text) {
+        insertStack.length = 0;
+        return;
+      }
+      patternEl.value = v.slice(0, last.at) + v.slice(last.at + last.text.length);
+      patternEl.setSelectionRange(last.at, last.at);
+      patternEl.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    wrap.querySelector('#cheatClear').addEventListener('click', () => {
+      insertStack.length = 0;
+      patternEl.value = '';
+      patternEl.setSelectionRange(0, 0);
+      patternEl.dispatchEvent(new Event('input', { bubbles: true }));
+    });
 
     // 初始跑一次（可能有恢复的正则）
     run();
