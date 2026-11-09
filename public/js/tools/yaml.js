@@ -119,7 +119,8 @@ export default {
     function showError(e) {
       statBar.style.display = 'none';
       const { msg, line, col } = yamlErrorInfo(e, inBox.getValue());
-      let html = `<div class="alert err">YAML 解析失败：${esc(msg)}`;
+      // white-space:pre-wrap 保留换行与缩进空格，避免替换 class 属性里的空格
+      let html = `<div class="alert err" style="white-space:pre-wrap">YAML 解析失败：${esc(msg)}`;
       if (line) {
         html += `\n位置：第 ${line} 行第 ${col} 列`;
         const lines = inBox.getValue().split('\n');
@@ -128,7 +129,7 @@ export default {
         html += `\n\n${line} | ${esc(l)}\n${' '.repeat(String(line).length + 3)}${caret}`;
       }
       html += '</div>';
-      msgEl.innerHTML = html.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+      msgEl.innerHTML = html;
     }
 
     function transform(kind) {

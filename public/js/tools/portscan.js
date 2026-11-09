@@ -1,5 +1,5 @@
 /* TCP 端口扫描 */
-import { h, esc, api, remember, setBusy, formError } from '../ui.js';
+import { h, esc, api, remember, setBusy, formError, createGuard } from '../ui.js';
 
 /* 端口数上限：本地与云端一致（云端并发只有 6，大范围扫描会慢，但不限数量） */
 const MAX_PORTS = 2000;
@@ -176,6 +176,8 @@ export default {
         ${body}`;
     }
 
+    const guard = createGuard(wrap);
+
     async function run() {
       const host = hostEl.value.trim();
       if (!host) return hostErr.show('请输入要扫描的域名或 IP');
@@ -194,11 +196,15 @@ export default {
       metaEl.textContent = '';
       const ports = expandPorts(portsStr);
       const combined = { host, target: host, scanned: 0, open: [], elapsed: 0, timeout: Number(wrap.querySelector('#timeout').value) };
+      const task = guard.begin(); // 重新扫描 / 切走工具时中止未完成的批次循环
+      let truncatedMsg = null;
       try {
         for (let i = 0; i < ports.length; i += BATCH_SIZE) {
+          if (!guard.alive(task.id)) return;
           const batch = ports.slice(i, i + BATCH_SIZE);
           // 锁定首批解析出的 IP，避免域名轮询解析时不同批次扫到不同主机
-          const r = await api('/api/net/portscan', { host: combined.target, ports: batch.join(','), timeout: combined.timeout });
+          const r = await api('/api/net/portscan', { host: combined.target, ports: batch.join(','), timeout: combined.timeout }, { signal: task.signal });
+          if (!guard.alive(task.id)) return;
           if (!r.ok) throw new Error(r.error);
           combined.target = r.data.target;
           combined.scanned += r.data.scanned;
@@ -206,17 +212,25 @@ export default {
           combined.elapsed += r.data.elapsed;
           // 每 6 个端口一批返回后立即刷新；已开放端口会在下一批开始前显示
           render(combined, ports.length, true, batch);
+          if (r.data.truncated) {
+            truncatedMsg = `已达单次请求时间上限，只完成 ${combined.scanned} / ${ports.length} 个端口，请缩小范围后重试`;
+            break;
+          }
         }
         combined.open.sort((a, b) => a.port - b.port);
         render(combined);
+        if (truncatedMsg) {
+          outEl.insertAdjacentHTML('afterbegin', `<div class="alert warn">${esc(truncatedMsg)}</div>`);
+        }
       } catch (e) {
+        if (!guard.alive(task.id)) return;
         if (combined.scanned) {
           combined.open.sort((a, b) => a.port - b.port);
           render(combined);
           outEl.insertAdjacentHTML('afterbegin', `<div class="alert warn">扫描中断：${combined.scanned} / ${ports.length} 个端口已完成。${esc(e.message)}</div>`);
         } else outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {
-        setBusy(btn, false);
+        if (guard.alive(task.id)) setBusy(btn, false);
       }
     }
 

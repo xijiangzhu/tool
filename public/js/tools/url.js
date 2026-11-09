@@ -59,6 +59,32 @@ export default {
       return { isDecode, scope };
     }
 
+    /** 容错解码：逐个 %HH 还原字节，非法 / 不完整的 % 原样保留，坏字节交给 TextDecoder 替换。
+        decodeURI 对孤立 % 同样会抛 URIError，不能作为 decodeURIComponent 的降级方案。 */
+    function tolerantDecode(v) {
+      const bytes = [];
+      const enc = new TextEncoder();
+      let plain = '';
+      const flush = () => {
+        if (plain) {
+          for (const b of enc.encode(plain)) bytes.push(b);
+          plain = '';
+        }
+      };
+      for (let i = 0; i < v.length; i++) {
+        const hex = v.slice(i + 1, i + 3);
+        if (v[i] === '%' && /^[0-9a-fA-F]{2}$/.test(hex)) {
+          flush();
+          bytes.push(parseInt(hex, 16));
+          i += 2;
+        } else {
+          plain += v[i];
+        }
+      }
+      flush();
+      return new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes));
+    }
+
     function run() {
       msgEl.innerHTML = '';
       const v = inBox.getValue();
@@ -77,9 +103,8 @@ export default {
           try {
             r = decodeURIComponent(v);
           } catch (e) {
-            // 含孤立 % 或不完整 %ZZ 时 decodeURIComponent 抛错：退回 decodeURI 仍可解出主体
-            r = decodeURI(v);
-            msgEl.innerHTML = `<div class="alert warn">部分转义序列不完整，已按整串方式解码</div>`;
+            r = tolerantDecode(v);
+            msgEl.innerHTML = `<div class="alert warn">部分转义序列不完整，非法片段已原样保留</div>`;
           }
           outBox.setValue(r);
         } else {

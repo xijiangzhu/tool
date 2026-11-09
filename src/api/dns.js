@@ -1,6 +1,6 @@
 /* DNS 查询：解析层由平台提供（Node 走系统解析器，Workers 走 DoH），
    查询组合、候选服务器回退与返回结构在两种运行时完全一致。 */
-import { isIP, normalizeHost } from '../lib/util.js';
+import { isIP, normalizeHost, badRequest, friendlyDnsError, withTimeout } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
 const DNS_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA'];
@@ -13,14 +13,17 @@ export default async function dnsQuery(input) {
   const p = await platform();
 
   const rawName = String(input.name || '').trim();
-  if (!rawName) throw new Error('请输入域名或 IP');
+  if (!rawName) throw badRequest('请输入域名或 IP');
   const type = String(input.type || 'A').toUpperCase();
-  if (type !== 'ALL' && !DNS_TYPES.includes(type)) throw new Error('不支持的记录类型');
+  if (type !== 'ALL' && !DNS_TYPES.includes(type)) throw badRequest('不支持的记录类型');
 
-  const ipv = isIP(rawName);
-  const name = ipv ? rawName : normalizeHost(rawName);
+  // PTR 查询时常见 [::1] / [1.2.3.4] 写法：先剥掉方括号再判 IP，
+  // 否则 ipv=0，PTR 会被误判成「PTR 需要输入 IP 地址」
+  const cleanName = rawName.replace(/^\[|\]$/g, '');
+  const ipv = isIP(cleanName);
+  const name = ipv ? cleanName : normalizeHost(cleanName);
   if (rawName.includes('@') || /^[a-z][a-z0-9+.-]*:\/\//i.test(rawName)) {
-    throw new Error('请填写域名或 IP，不要带协议与路径');
+    throw badRequest('请填写域名或 IP，不要带协议与路径');
   }
 
   // 自定义服务器：Node 支持任意 IP，云端只能是已知的公共 DoH
@@ -28,9 +31,9 @@ export default async function dnsQuery(input) {
   let endpoint;
   let usedServer = '';
   if (wanted) {
-    if (!isIP(wanted)) throw new Error('自定义 DNS 服务器需填写 IP 地址');
+    if (!isIP(wanted)) throw badRequest('自定义 DNS 服务器需填写 IP 地址');
     const chk = p.checkDnsServer(wanted);
-    if (!chk.ok) throw new Error(chk.error);
+    if (!chk.ok) throw badRequest(chk.error);
     endpoint = chk.endpoint;
     usedServer = chk.label;
   }
@@ -39,7 +42,19 @@ export default async function dnsQuery(input) {
     if (t === 'PTR' && !ipv) {
       return { type: t, records: [], error: 'PTR 查询需要输入 IP 地址', code: 'EINVAL', elapsed: 0 };
     }
-    const r = await p.dnsOne(name, t, { server: srv, endpoint });
+    let r;
+    try {
+      // 单条查询硬截止，避免某个解析器无响应时把整批（ALL 查询 8 个类型）拖住
+      r = await withTimeout(p.dnsOne(name, t, { server: srv, endpoint }), 8000, 'DNS 查询超时');
+    } catch (e) {
+      return {
+        type: t,
+        records: [],
+        error: friendlyDnsError(e),
+        code: e.code || 'ETIMEOUT',
+        elapsed: 8000,
+      };
+    }
     if (r.server) usedServer = r.server; // 回退到新服务器时同步更新展示名称
     return {
       type: t,

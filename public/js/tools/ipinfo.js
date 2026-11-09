@@ -110,9 +110,13 @@ async function myIpInfo(force = false) {
   if (!mine.ok) throw new Error(mine.error);
   let d = mine.data || {};
   const serverV6 = d.version === 'IPv6' ? d.ip : d.altV6 || null;
-  if (d.ip && d.version === 'IPv4') return { ...d, altV6: serverV6 };
+  // 无论是否提前满足条件都要等探测结束：force 刷新时探测结果不能变成孤儿 Promise
+  // 在后台写缓存，且探测到与服务端不同的 IPv4 时应以浏览器实测出口为准
   const v4 = await v4P;
-  if (v4 && (!d.ip || d.version !== 'IPv4')) {
+  if (d.ip && d.version === 'IPv4' && (!force || !v4 || v4 === d.ip)) {
+    return { ...d, altV6: serverV6 };
+  }
+  if (v4 && (!d.ip || d.version !== 'IPv4' || v4 !== d.ip)) {
     const r4 = await api('/api/net/ipinfo', { ip: v4 });
     d = r4.ok && r4.data
       ? { ...r4.data, altV6: serverV6 }

@@ -35,7 +35,8 @@ function extract(r) {
   const enabled = new Set();
   (d.protocols || []).forEach((p) => {
     const v = String(p.version || '');
-    if (/^1(\.[0-3])?$/.test(v)) enabled.add(`TLSv${v}`);
+    // SSL Labs 的 1.0 有时写作 '1'、有时写作 '1.0'，都要归一到 TLSv1 这个键
+    if (/^1(\.[0-3])?$/.test(v)) enabled.add(v === '1' || v === '1.0' ? 'TLSv1' : `TLSv${v}`);
   });
   const protocols = {};
   for (const v of ['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']) {

@@ -84,12 +84,16 @@ const GEO_ORDER = ['ipwho', 'ip-api', 'ipinfo'];
  * 查询 IP 归属地
  * @param ip 留空时由服务方按调用方出口 IP 处理（Node 本地即本机公网出口）
  */
-export async function geoLookup(ip, order = GEO_ORDER) {
+export async function geoLookup(ip, order = GEO_ORDER, budgetMs = 12000) {
+  // 三家是串行回退，必须给整体预算，否则 3 × 6s 会把接口拖到平台超时
+  const deadline = Date.now() + Math.max(0, budgetMs);
   for (const key of order) {
+    const ms = Math.min(6000, deadline - Date.now());
+    if (ms < 500) break;
     const p = PROVIDERS[key];
     if (!p) continue;
     try {
-      const d = await getJson(p.url(ip));
+      const d = await getJson(p.url(ip), ms);
       const hit = p.map(d, ip);
       if (hit) return hit;
     } catch (_) {}

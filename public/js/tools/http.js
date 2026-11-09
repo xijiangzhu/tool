@@ -1,5 +1,5 @@
 /* HTTP 调试 */
-import { h, api, copy, codeBox, esc, fmtBytes, remember, segGroup, setBusy, formError } from '../ui.js';
+import { h, api, copy, codeBox, esc, fmtBytes, remember, segGroup, setBusy, formError, createGuard } from '../ui.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -155,19 +155,25 @@ export default {
       resultEl.innerHTML = '';
     });
 
+    const guard = createGuard(wrap);
+
     async function send() {
       const req = currentReq();
       if (!req.url) return urlErr.show('请输入要请求的 URL');
       if (!/^https?:\/\//i.test(req.url)) return urlErr.show('URL 需以 http:// 或 https:// 开头');
       urlErr.clear();
+      const task = guard.begin(); // 新请求会取消上一次仍在等待的请求
       setBusy(sendBtn, true, '请求中');
       resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">请求发送中…</div></div></div>';
       let res;
       try {
-        res = await api('/api/http', req);
+        // 后端整体预算 45s，前端默认 60s 超时留足余量
+        res = await api('/api/http', req, { signal: task.signal });
       } catch (e) {
+        if (!guard.alive(task.id)) return; // 已被新请求取代或工具已切走
         res = { ok: false, error: e.message };
       }
+      if (!guard.alive(task.id)) return;
       setBusy(sendBtn, false);
       render(res, req);
     }
@@ -229,6 +235,12 @@ export default {
         box.setValue(text);
         panel.appendChild(box.el);
         if (isJson) box.setHighlight(true);
+        if (res.binaryTruncated || res.truncated) {
+          const note = res.binaryTruncated
+            ? `二进制内容仅返回前 ${fmtBytes(65536)}（原始大小 ${fmtBytes(res.size)}）`
+            : '响应体超过 1MB，已截断';
+          panel.appendChild(h(`<div class="alert warn mt12">${esc(note)}</div>`));
+        }
       }
       function showHeaders() {
         const rows = Object.entries(res.headers || {})

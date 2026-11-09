@@ -1,5 +1,5 @@
 /* DNS 记录查询 */
-import { h, esc, api, remember, setBusy, formError } from '../ui.js';
+import { h, esc, api, remember, setBusy, formError, createGuard } from '../ui.js';
 
 const TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA', 'ALL'];
 
@@ -127,11 +127,14 @@ export default {
           : '');
     }
 
+    const guard = createGuard(wrap);
+
     async function run() {
       const name = nameEl.value.trim();
       if (!name) return nameErr.show('请输入要查询的域名或 IP');
       nameErr.clear();
       resultCard.style.display = ''; // 结果卡片只在发起查询后出现
+      const task = guard.begin();
       setBusy(btn, true, '查询中');
       outEl.innerHTML = '<div class="empty">正在查询…</div>';
       metaEl.textContent = '';
@@ -140,13 +143,15 @@ export default {
           name,
           type: wrap.querySelector('#type').value,
           server: wrap.querySelector('#server').value.trim(),
-        });
+        }, { signal: task.signal });
+        if (!guard.alive(task.id)) return; // 旧响应不覆盖新结果
         if (!r.ok) throw new Error(r.error);
         render(r.data);
       } catch (e) {
+        if (!guard.alive(task.id)) return;
         outEl.innerHTML = `<div class="alert err">${esc(e.message)}</div>`;
       } finally {
-        setBusy(btn, false);
+        if (guard.alive(task.id)) setBusy(btn, false);
       }
     }
 

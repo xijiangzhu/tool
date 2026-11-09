@@ -1,5 +1,5 @@
 /* 正则测试器：实时匹配 / 高亮 / 捕获组明细 */
-import { h, esc, codeBox, remember } from '../ui.js';
+import { h, esc, codeBox, remember, onDispose } from '../ui.js';
 
 const MAX_TEXT = 500 * 1024; // 测试文本上限，超限截断并提示
 const MAX_HITS = 1000; // 明细条数上限，防止超大列表卡页面
@@ -207,7 +207,10 @@ export default {
       const { source, flags } = normalizeInput(patternEl.value);
       if (!source.trim()) return null;
       try {
-        const re = new RegExp(source, flags);
+        // 遍历依赖 exec 推进 lastIndex，非 global 正则会永远停在第一次命中
+        // （同一结果重复 1000 次 / 零宽匹配死循环）。UI 仍显示用户勾选的 flags。
+        const scanFlags = flags.includes('g') ? flags : flags + 'g';
+        const re = new RegExp(source, scanFlags);
         regexMeta.textContent = `${source.length} 字符 · flags: ${flags || '(无)'}`;
         msgEl.innerHTML = '';
         return re;
@@ -353,11 +356,12 @@ export default {
     cheatMask.addEventListener('click', (e) => {
       if (e.target === cheatMask) closeCheat(); // 点遮罩关闭
     });
-    document.addEventListener('keydown', (e) => {
-      // 该工具卸载后（hash 跳走）此监听自然失效，避免残留
-      if (!wrap.isConnected) return;
+    const onKey = (e) => {
       if (e.key === 'Escape' && cheatMask.style.display !== 'none') closeCheat();
-    });
+    };
+    document.addEventListener('keydown', onKey);
+    // document 上的监听不随 DOM 清空而消失，切换工具时必须显式移除
+    onDispose(wrap, () => document.removeEventListener('keydown', onKey));
     // 本弹窗内的插入记录：用于「撤销」逐步回退（弹窗遮挡输入框，只能在这里纠错）
     const insertStack = [];
     cheatMask.querySelectorAll('td.syn').forEach((td) =>

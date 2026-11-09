@@ -167,6 +167,9 @@ export default {
 
     function fieldValue(f) {
       const s = state[f.key];
+      // 解析到工具不支持可视化的语法（L / W / 1-5/2 …）时原样保留，
+      // 避免「粘贴表达式 → 复制表达式」悄悄把内容改成 *
+      if (s.mode === 'raw' && s.raw) return s.raw;
       if (s.mode === 'every') return '*';
       if (s.mode === 'each') return `*/${Math.max(1, s.each)}`;
       if (s.mode === 'spec') {
@@ -201,6 +204,12 @@ export default {
     }
 
     function listText(v, f, suffix) {
+      // 自定义语法直接展示原文；*/n 也不能交给 Number()，否则会输出 NaN
+      if (state[f.key] && state[f.key].mode === 'raw') return `${v}${suffix}`;
+      if (v.includes('/')) {
+        const [base, step] = v.split('/');
+        return `${base === '*' ? '全部取值' : base} 每隔 ${step} 个${f.name}${suffix}`;
+      }
       return v.includes(',')
         ? v.split(',').map((x) => label(Number(x), f)).join('、') + suffix
         : v.includes('-')
@@ -271,7 +280,9 @@ export default {
       `;
       const body = editorEl.querySelector('[data-role="body"]');
 
-      if (s.mode === 'every') {
+      if (s.mode === 'raw') {
+        body.innerHTML = `<div class="alert warn">该字段使用了暂不支持可视化编辑的语法 <span class="mono">${esc(s.raw)}</span>，已原样保留；切换到上方任一模式会覆盖它。含此类语法时下次执行时间可能无法计算。</div>`;
+      } else if (s.mode === 'every') {
         body.innerHTML = `<div class="muted" style="font-size:13px">不限制「${f.name}」，在表达式中记为 <span class="mono" style="color:var(--accent-2)">*</span></div>`;
       } else if (s.mode === 'each') {
         body.innerHTML = `
@@ -406,6 +417,13 @@ export default {
         for (const item of parts[i].split(',')) {
           if (item === '*' || item === '?') continue;
           const base = item.split('/')[0];
+          // */0 / 非法步长必须报错，否则会被 fieldValue 悄悄改写成 */1
+          if (item.includes('/')) {
+            const step = item.split('/')[1];
+            if (!/^\d+$/.test(step) || Number(step) < 1) {
+              return exprErr.show(`${field.name}字段的步长不合法：${item}（/n 的 n 需为正整数）`);
+            }
+          }
           const values = /^\d+-\d+$/.test(base) ? base.split('-').map(Number) : /^\d+$/.test(base) ? [Number(base)] : [];
           const invalid = values.find((value) => value < field.min || value > hi);
           if (invalid !== undefined) {
@@ -414,10 +432,12 @@ export default {
         }
       }
       exprErr.clear();
+      const rawFields = [];
       FIELDS.forEach((f, i) => {
         let v = parts[i];
         if (f.key === 'dow') v = normalizeDow(v);
         const s = state[f.key];
+        s.raw = null;
         s.spec = [];
         if (v === '*' || v === '?') s.mode = 'every';
         else if (/^\*\/(\d+)$/.test(v)) {
@@ -434,10 +454,13 @@ export default {
           s.from = Number(v.split('-')[0]);
           s.to = Number(v.split('-')[1]);
         } else {
-          s.mode = 'every';
-          toast(`${f.name} 字段含特殊语法（${v}），已按“全部”处理`);
+          // 原样保留，不再静默改成 * —— 复制表达式拿到的仍是用户粘贴的原文
+          s.mode = 'raw';
+          s.raw = v;
+          rawFields.push(`${f.name}（${v}）`);
         }
       });
+      if (rawFields.length) toast(`已原样保留特殊语法：${rawFields.join('、')}，这些字段暂不支持可视化编辑`);
       renderExpr();
       renderEditor();
       renderNext();

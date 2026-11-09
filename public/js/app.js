@@ -1,6 +1,6 @@
 /* 应用入口：工具注册、导航、路由、主题 */
 
-import { h, esc, toast } from './ui.js';
+import { h, esc, toast, runDispose } from './ui.js';
 
 import base64 from './tools/base64.js';
 import json from './tools/json.js';
@@ -243,6 +243,8 @@ async function route() {
   document.title = `${tool.name} · 运维工具箱`;
 
   setActive(tool.id);
+  // 先回收上一个工具登记的监听器 / 观察器 / 进行中的请求，再清空 DOM
+  runDispose(viewEl);
   viewEl.innerHTML = '';
   viewEl.scrollTop = 0;
   document.querySelector('.content').scrollTop = 0;

@@ -158,10 +158,13 @@ export default {
     const opened = socket.opened.catch((e) => {
       openedErr = e;
     });
+    let openTimer;
     try {
       await Promise.race([
         opened,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), timeoutMs)),
+        new Promise((_, reject) => {
+          openTimer = setTimeout(() => reject(new Error('连接超时')), timeoutMs);
+        }),
       ]);
       if (openedErr) throw openedErr;
     } catch (e) {
@@ -170,6 +173,9 @@ export default {
         socket.close();
       } catch (_) {}
       throw e;
+    } finally {
+      // 连接先打开时也必须清掉定时器，否则 isolate 会一直等到超时才释放
+      clearTimeout(openTimer);
     }
 
     const writer = socket.writable.getWriter();
@@ -190,10 +196,17 @@ export default {
       async read(ms) {
         if (closed) return null;
         const pending = reader.read().catch(() => ({ done: true, value: undefined }));
-        const res = await Promise.race([
-          pending,
-          new Promise((r) => setTimeout(() => r({ timeout: true }), ms)),
-        ]);
+        let timer;
+        const timeout = new Promise((r) => {
+          timer = setTimeout(() => r({ timeout: true }), ms);
+        });
+        let res;
+        try {
+          res = await Promise.race([pending, timeout]);
+        } finally {
+          // 数据先到时清掉计时器，避免在 Workers 里累积大量待触发的 timeout
+          clearTimeout(timer);
+        }
         if (res.timeout) {
           close();
           return null;

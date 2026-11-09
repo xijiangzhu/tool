@@ -6,7 +6,7 @@
 import { ctLookup, formatFingerprint } from '../lib/ct.js';
 import { rawTlsInspect, rawTlsProtocols } from '../lib/rawtls.js';
 import { ssllabsInfo } from '../lib/ssllabs.js';
-import { clamp, isIP, isPrivateHost } from '../lib/util.js';
+import { clamp, isIP, isPrivateHost, badRequest, withTimeout } from '../lib/util.js';
 import { platform } from '../platform/index.js';
 
 /* 云端结果缓存：公共源都有速率限制，同一主机 10 分钟内直接复用，避免重复外呼与超时 */
@@ -31,16 +31,24 @@ function cacheSet(key, value) {
 
 /** 允许传入 https://example.com/path、example.com:8443 等写法 */
 function normalizeTarget(input) {
-  let host = String(input.host || '').trim();
-  host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[/?#].*$/, '');
+  let host = String(input.host || '').trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
   let portFromHost = null;
-  if (!isIP(host) && host.includes(':') && host.indexOf(':') === host.lastIndexOf(':')) {
-    const idx = host.indexOf(':');
-    portFromHost = Number(host.slice(idx + 1));
-    host = host.slice(0, idx);
+  // [::1]:8443 / https://[2001:db8::1]/ 这类 IPv6 字面量要先整体取出，
+  // 否则下面的路径剥离会把左方括号当成路径起点，只剩一个 '['
+  const bracket = /^\[([0-9a-fA-F:.]+)\](?::(\d{1,5}))?/.exec(host);
+  if (bracket) {
+    host = bracket[1];
+    portFromHost = bracket[2] ? Number(bracket[2]) : null;
+  } else {
+    host = host.replace(/[/?#].*$/, '');
+    if (!isIP(host) && host.includes(':') && host.indexOf(':') === host.lastIndexOf(':')) {
+      const idx = host.indexOf(':');
+      portFromHost = Number(host.slice(idx + 1));
+      host = host.slice(0, idx);
+    }
   }
   const port = Number(input.port || portFromHost || 443);
-  if (!host) throw new Error('请填写域名或 IP');
+  if (!host) throw badRequest('请填写域名或 IP');
   // 中文 / IDN 域名：先转成 punycode（xn-- 前缀），否则 SNI 里发的是非法的 UTF-8 原始字节，握手必然失败
   if (/[^\x20-\x7e]/.test(host)) {
     try {
@@ -48,8 +56,9 @@ function normalizeTarget(input) {
     } catch (_) {}
     // 转换失败会原样保留非 ASCII 字符，不能再放行（正则已收紧为 ASCII）：直接报错
   }
-  if (!/^[a-zA-Z0-9.\-_]+$/.test(host)) throw new Error('域名格式不合法');
-  if (!(port > 0 && port < 65536)) throw new Error('端口不合法');
+  // IPv6 字面量含冒号（可能还带内嵌 IPv4 的点），按 isIP 单独放行
+  if (isIP(host) !== 6 && !/^[a-zA-Z0-9.\-_]+$/.test(host)) throw badRequest('域名格式不合法');
+  if (!(port > 0 && port < 65536)) throw badRequest('端口不合法');
   return { host: host.toLowerCase(), port };
 }
 
@@ -87,7 +96,7 @@ export default async function sslCheck(input) {
   let dnsError = null;
   if (!isIP(host)) {
     try {
-      resolved = await p.lookupIps(host);
+      resolved = await withTimeout(p.lookupIps(host), 6000, 'DNS 解析超时');
     } catch (e) {
       dnsError = `DNS 解析失败：${e.code || e.message}`;
       resolved = [];
@@ -95,29 +104,34 @@ export default async function sslCheck(input) {
   }
 
   if (p.limits.blockPrivateHost && resolved.some((ip) => isPrivateHost(ip))) {
-    throw new Error('云端环境禁止连接内网 / 本机地址，SSL 检测请使用公网域名');
+    throw badRequest('云端环境禁止连接内网 / 本机地址，SSL 检测请使用公网域名');
   }
 
   const key = `${host}:${port}`;
   const cached = input.refresh ? null : cacheGet(key);
   if (cached) return { ...cached, resolved, elapsed: Date.now() - started, cached: true };
 
-  // 硬截止 20 秒：Workers 单个请求有固定时长上限，不允许外部源把请求拖死
-  const deadline = started + 20000;
+  // 硬截止 25 秒：Workers 单个请求有固定时长上限，且每一步的预算都从剩余时间里扣，
+  // 不允许 DNS / 握手 / 公共源任意一环把请求拖死
+  const deadline = started + 25000;
+  const remain = () => Math.max(0, deadline - Date.now());
 
   // ① 自己发一次 ClientHello：本地与云端同一条路，能连上就能拿到真实证书，不依赖任何第三方
   let handshake = null;
   let handshakeError = null;
+  const hsBudget = Math.min(timeoutMs, 9000, Math.max(1000, remain()));
   try {
-    handshake = await rawTlsInspect(host, port, host, Math.min(timeoutMs, 9000));
+    handshake = await withTimeout(rawTlsInspect(host, port, host, hsBudget), hsBudget + 1000, 'TLS 握手超时');
   } catch (e) {
     handshakeError = (e && e.message) || '握手失败';
   }
 
   if (handshake && handshake.chain && handshake.chain.length) {
     // ② 逐版本协议探测：四路并行握手，各平台共用同一实现
-    const budget = Math.min(6000, Math.max(2500, deadline - Date.now()));
-    handshake.protocols = await rawTlsProtocols(host, port, host, budget).catch(() => null);
+    const budget = Math.min(6000, remain());
+    handshake.protocols = budget >= 1500
+      ? await withTimeout(rawTlsProtocols(host, port, host, budget), budget + 1000, '协议探测超时').catch(() => null)
+      : null;
 
     const result = fromHandshake({ host, port, resolved, info: handshake, started });
     result.source = 'TLS 握手';
@@ -129,7 +143,7 @@ export default async function sslCheck(input) {
 
   // ③ 握手拿不到（端口不通 / 非 TLS 服务 / 被拦截）：退回公共数据源
   if (isIP(host)) {
-    throw new Error(
+    throw badRequest(
       `无法与 ${host}:${port} 完成 TLS 握手（${handshakeError}）；公共数据源只按域名索引，填 IP 时无法兜底`
     );
   }
@@ -192,12 +206,18 @@ async function fromRemoteSources({ host, port, resolved, started, deadline, dnsE
   const errors = [];
   if (handshakeError) errors.push(`TLS 握手：${handshakeError}`);
 
+  // 公共数据源同样受整体预算约束：到点就放弃该源，而不是无限等下去
+  const sourceBudget = Math.max(1500, remain());
   const [labs, ct] = await Promise.all([
-    ssllabsInfo(host, { timeoutMs: 6000 }).catch((e) => {
+    withTimeout(
+      ssllabsInfo(host, { timeoutMs: Math.min(6000, sourceBudget) }),
+      sourceBudget + 500,
+      'SSL Labs 查询超时'
+    ).catch((e) => {
       errors.push(`SSL Labs：${(e && e.message) || e}`);
       return null;
     }),
-    ctLookup(host).catch((e) => {
+    withTimeout(ctLookup(host), sourceBudget + 500, 'CT 日志查询超时').catch((e) => {
       errors.push(`CT 日志：${(e && e.message) || e}`);
       return null;
     }),
@@ -340,7 +360,8 @@ function buildFromCt(host, port, ct) {
 async function liveProbe(host, port, timeoutMs = 9000) {
   const t0 = Date.now();
   try {
-    const res = await fetch(`https://${host}:${port}/`, {
+    const authority = host.includes(':') ? `[${host}]` : host; // IPv6 字面量 URL 必须加方括号
+    const res = await fetch(`https://${authority}:${port}/`, {
       method: 'GET',
       redirect: 'manual',
       headers: { 'user-agent': 'tool/1.0', accept: '*/*' },

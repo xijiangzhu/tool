@@ -7,6 +7,26 @@ export const clamp = (v, min, max) => {
   return Math.min(Math.max(n, min), max);
 };
 
+/** 带 HTTP 状态的错误：用户输入 / 请求体问题用 400，避免统一被当成 500 服务器故障 */
+export class HttpError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+export const badRequest = (message, status = 400) => new HttpError(message, status);
+
+/** 给没有内建超时的 await 加硬截止（Promise 竞速；底层操作仍会自行结束） */
+export function withTimeout(promise, ms, message = '操作超时') {
+  let timer;
+  const guard = new Promise((_, reject) => {
+    const label = ms >= 1000 ? `${Math.round(ms / 1000)} 秒` : `${ms} 毫秒`;
+    timer = setTimeout(() => reject(new Error(`${message}（${label}）`)), ms);
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
+}
+
 /* --------------------------------- IP 判断 -------------------------------- */
 
 export function isIPv4(s) {
@@ -29,7 +49,8 @@ export function isIPv6(s) {
   if (core.includes('.')) return false;
   const parts = core.split('::');
   if (parts.length > 2) return false;
-  const groups = (p) => (p ? p.split(':').filter(Boolean) : []);
+  // 不能 filter(Boolean)：'1::2:' / '::1:' 会产生空段，过滤后会被误判为合法地址
+  const groups = (p) => (p ? p.split(':') : []);
   const head = groups(parts[0]);
   const tail = parts.length === 2 ? groups(parts[1]) : [];
   const total = head.length + tail.length;
@@ -77,46 +98,22 @@ export function normalizeHost(raw) {
       h = new URL(`http://${h}`).hostname;
     } catch (_) {}
   }
-  if (!h) throw new Error('请输入域名或 IP');
-  if (h.length > 253) throw new Error('域名过长');
+  if (!h) throw badRequest('请输入域名或 IP');
+  if (h.length > 253) throw badRequest('域名过长');
   // 单一冒号 + 数字结尾说明带的是端口，这里不接收 —— 端口属于「端口范围」输入框
   if (/^[^ :]+:\d{0,5}$/.test(h)) {
-    throw new Error('请只填写主机名，不要带协议与端口（例如 example.com:8443 应填 example.com）');
+    throw badRequest('请只填写主机名，不要带协议与端口（例如 example.com:8443 应填 example.com）');
   }
-  if (!/^[A-Za-z0-9._:-]+$/.test(h)) throw new Error('域名格式不合法（仅支持字母、数字、点、减号、下划线与冒号）');
+  if (!/^[A-Za-z0-9._:-]+$/.test(h)) throw badRequest('域名格式不合法（仅支持字母、数字、点、减号、下划线与冒号）');
   return h;
 }
 
-/** 私有 / 保留地址判断：云端禁止连接这些地址，需要提前给出友好提示 */
+/** 非公网地址判断：与 ipScope 共用一套结论，避免两处判定互相矛盾
+    （此前 IPv6 的 :: / ::127.0.0.1、IPv4 组播与保留段在两处结果不一致） */
 export function isPrivateHost(host) {
   if (!isIP(host)) return false;
-  if (isIPv4(host)) {
-    const [a, b] = host.split('.').map(Number);
-    return (
-      a === 10 ||
-      a === 127 ||
-      a === 0 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
-  }
-  // 统一展开再判断：0:0:0:0:0:0:0:1 与 ::1 是同一个环回地址，展开写法此前会被误判为公网
-  const low = (expandIPv6(host) || host).toLowerCase();
-  // IPv4-mapped IPv6（::ffff:127.0.0.1 / ::ffff:7f00:1）按内嵌的 IPv4 判断
-  const mapped = /^0000:0000:0000:0000:0000:ffff:(.{4}:.{4})$/.exec(low);
-  if (mapped) {
-    const hi = parseInt(mapped[1].slice(0, 4), 16);
-    const lo = parseInt(mapped[1].slice(5, 9), 16);
-    return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-  }
-  const loopback = /^0000:0000:0000:0000:0000:0000:0000:0001$/;
-  return (
-    loopback.test(low) ||
-    /^f[cd]/.test(low) ||
-    /^fe[89ab]/.test(low)
-  );
+  const { kind } = ipScope(host);
+  return kind !== 'public' && kind !== 'unknown';
 }
 
 /** 判断 IP 的用途类型（内网 / 环回 / 保留 …） */
@@ -144,6 +141,13 @@ export function ipScope(ip) {
       return ipScope(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
     }
     if (/^0000:0000:0000:0000:0000:0000:0000:0001$/.test(low)) return { kind: 'loopback', label: '本机环回' };
+    // IPv4 兼容写法（::127.0.0.1、::0.0.0.1 等）：按内嵌的 IPv4 判断，不能当公网
+    const compat = /^0000:0000:0000:0000:0000:0000:(.{4}):(.{4})$/.exec(low);
+    if (compat) {
+      const hi = parseInt(compat[1], 16);
+      const lo = parseInt(compat[2], 16);
+      return ipScope(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
     if (/^f[cd]/.test(low)) return { kind: 'private', label: 'IPv6 唯一本地' };
     if (/^fe[89ab]/.test(low)) return { kind: 'linklocal', label: '链路本地' };
     if (/^ff/.test(low)) return { kind: 'multicast', label: '组播地址' };
@@ -196,20 +200,22 @@ export function parsePortSpec(spec, { max = 2000 } = {}) {
     if (m) {
       const a = Number(m[1]);
       const b = Number(m[2]);
-      if (a < 1 || b > 65535 || a > b) throw new Error(`端口范围不合法：${p}`);
+      if (a < 1 || b > 65535 || a > b) throw badRequest(`端口范围不合法：${p}`);
       for (let i = a; i <= b; i++) {
         out.add(i);
-        if (out.size > max) throw new Error(`单次最多扫描 ${max} 个端口`);
+        if (out.size > max) throw badRequest(`单次最多扫描 ${max} 个端口`);
       }
     } else if (/^\d{1,5}$/.test(p)) {
       const n = Number(p);
-      if (n < 1 || n > 65535) throw new Error(`端口不合法：${p}`);
+      if (n < 1 || n > 65535) throw badRequest(`端口不合法：${p}`);
       out.add(n);
+      // 逗号写法此前只在区间分支检查上限，'1,2,3,...,3000' 能绕过 2000 端口限制
+      if (out.size > max) throw badRequest(`单次最多扫描 ${max} 个端口`);
     } else {
-      throw new Error(`端口格式不正确：${p}`);
+      throw badRequest(`端口格式不正确：${p}`);
     }
   }
-  if (!out.size) throw new Error('请填写要扫描的端口');
+  if (!out.size) throw badRequest('请填写要扫描的端口');
   return [...out].sort((a, b) => a - b);
 }
 
@@ -254,7 +260,7 @@ export function textResponse(body, status = 200) {
 export async function readJson(request) {
   // 声明内容长度先拦一道
   const len = Number(request.headers.get('content-length') || 0);
-  if (len > MAX_BODY) throw new Error('请求体过大（上限 5MB）');
+  if (len > MAX_BODY) throw badRequest('请求体过大（上限 5MB）', 413);
   let raw = '';
   if (request.body && typeof request.body.getReader === 'function') {
     // 流式增量读取：分块传输不带 content-length，不能先全量收完再查，超限立即取消
@@ -267,20 +273,20 @@ export async function readJson(request) {
       total += value.length;
       if (total > MAX_BODY) {
         try { await reader.cancel(); } catch (_) {}
-        throw new Error('请求体过大（上限 5MB）');
+        throw badRequest('请求体过大（上限 5MB）', 413);
       }
       raw += dec.decode(value, { stream: true });
     }
     raw += dec.decode();
   } else {
     raw = await request.text();
-    if (raw.length > MAX_BODY) throw new Error('请求体过大（上限 5MB）');
+    if (raw.length > MAX_BODY) throw badRequest('请求体过大（上限 5MB）', 413);
   }
   if (!raw) return {};
   try {
     return JSON.parse(raw);
   } catch (_) {
-    throw new Error('请求体不是合法 JSON');
+    throw badRequest('请求体不是合法 JSON');
   }
 }
 

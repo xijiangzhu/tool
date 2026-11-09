@@ -143,27 +143,35 @@ async function getEndpoint(force = false) {
   if (cached && !force && !isBad(cached)) return cached;
   if (probing) return probing;
   probing = (async () => {
-    const errors = [];
-    for (const ep of CANDIDATES) {
-      if (isBad(ep)) continue;
-      try {
-        const r = await rawQuery('example.com', 'A', ep, 1500);
-        if (r.status === 0) {
-          cached = ep;
-          return ep;
+    let errors = [];
+    // 最多两轮：第二轮用于「所有端点都在屏蔽期内」的情况。
+    // 注意不能递归调用 getEndpoint —— 此时 probing 尚未 settle，会返回自身形成 Promise 死锁。
+    for (let round = 0; round < 2; round++) {
+      errors = [];
+      let tried = 0;
+      for (const ep of CANDIDATES) {
+        if (isBad(ep)) continue;
+        tried++;
+        try {
+          const r = await rawQuery('example.com', 'A', ep, 1500);
+          if (r.status === 0) {
+            cached = ep;
+            return ep;
+          }
+          errors.push(`${ep.name}: RCODE ${r.status}`);
+        } catch (e) {
+          markBad(ep);
+          errors.push(`${ep.name}: ${e.message}`);
         }
-        errors.push(`${ep.name}: RCODE ${r.status}`);
-      } catch (e) {
-        markBad(ep);
-        errors.push(`${ep.name}: ${e.message}`);
       }
+      // 一个都没试到说明屏蔽表把全部端点拉黑了：清空后原地重试一次
+      if (!tried) {
+        badUntil.clear();
+        continue;
+      }
+      break;
     }
-    // 全部被屏蔽时清空屏蔽表，下一轮重新试
-    if (!errors.length) {
-      badUntil.clear();
-      return getEndpoint(true);
-    }
-    throw new Error(`没有可用的 DoH 服务（${errors.join('；')}）`);
+    throw new Error(`没有可用的 DoH 服务（${errors.join('；') || '全部端点暂不可用'}）`);
   })().finally(() => {
     probing = null;
   });

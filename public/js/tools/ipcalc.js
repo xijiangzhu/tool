@@ -142,6 +142,8 @@ export default {
       if (text.includes('/')) {
         const [a, b] = text.split('/');
         ipStr = a.trim();
+        // Number('') === 0：'192.168.1.0/' 会被当成 /0，必须显式校验前缀写法
+        if (!/^\d{1,2}$/.test(String(b || '').trim())) throw new Error('请填写 0 - 32 之间的前缀长度');
         prefix = Number(b.trim());
       } else if (text.includes(' ')) {
         const [a, b] = text.split(' ');
@@ -220,18 +222,21 @@ export default {
             <div class="card-note">把 /${prefix} 再切成更小的网段</div>
           </div>
           <div class="card-body">
-            <div class="ip-split-row">
-              <label class="inline-field">目标前缀 <span class="mono">/${prefix} →</span>
-                <input type="number" id="sval" value="${Math.min(32, prefix + 2)}" min="${prefix + 1}" max="32" />
-              </label>
-              <button class="btn btn-primary" id="split">划分</button>
-            </div>
+            ${prefix >= 32
+              ? '<div class="alert warn">/32 已是单个主机地址，无法继续划分子网</div>'
+              : `<div class="ip-split-row">
+                  <label class="inline-field">目标前缀 <span class="mono">/${prefix} →</span>
+                    <input type="number" id="sval" value="${Math.min(32, prefix + 2)}" min="${prefix + 1}" max="32" />
+                  </label>
+                  <button class="btn btn-primary" id="split">划分</button>
+                </div>`}
             <div id="splitOut" class="mt12"></div>
           </div>
         </section>
       `;
 
-      outEl.querySelector('#split').addEventListener('click', () => {
+      const splitBtn = outEl.querySelector('#split');
+      if (splitBtn) splitBtn.addEventListener('click', () => {
         const target = outEl.querySelector('#splitOut');
         const newPrefix = Number(outEl.querySelector('#sval').value);
         if (!(newPrefix > prefix && newPrefix <= 32))
@@ -285,7 +290,9 @@ export default {
     /* ------------------------------ IPv6 ------------------------------ */
     function calcV6(raw) {
       const [addr, pfx] = raw.split('/');
-      const prefix = pfx === undefined ? 128 : Number(pfx);
+      // '2001:db8::/' 的空前缀不能按 Number('') = 0 处理
+      if (pfx !== undefined && !/^\d{1,3}$/.test(pfx.trim())) throw new Error('请填写 0 - 128 之间的前缀长度');
+      const prefix = pfx === undefined ? 128 : Number(pfx.trim());
       if (!(prefix >= 0 && prefix <= 128)) throw new Error('IPv6 前缀长度需在 0 - 128 之间');
       const v = v6ToBigInt(addr.trim());
       const bits = BigInt(prefix);

@@ -20,6 +20,36 @@ export function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+/* ---------------- 工具卸载清理 ----------------
+   切换工具时 viewEl.innerHTML 被清空，但 document/window 上的监听、
+   ResizeObserver、进行中的网络请求不会自动消失，需要显式回收。 */
+const disposers = new WeakMap();
+
+/** 把清理函数登记到某个 DOM 节点上（该节点需最终挂进工具容器） */
+export function onDispose(el, fn) {
+  if (!el || typeof fn !== 'function') return;
+  const list = disposers.get(el) || [];
+  list.push(fn);
+  disposers.set(el, list);
+}
+
+/** 清空容器前调用：执行其自身及所有后代节点上登记的清理函数 */
+export function runDispose(root) {
+  const call = (el) => {
+    const list = disposers.get(el) || [];
+    disposers.delete(el);
+    list.forEach((fn) => {
+      try {
+        fn();
+      } catch (_) {}
+    });
+  };
+  if (root) {
+    root.querySelectorAll('*').forEach(call);
+    call(root);
+  }
+}
+
 /** 轻提示 */
 export function toast(msg, type = 'ok') {
   const wrap = document.getElementById('toasts');
@@ -402,6 +432,7 @@ export function codeBox(opts = {}) {
     const ro = new ResizeObserver(syncContain);
     ro.observe(body);
     ro.observe(ta);
+    onDispose(el, () => ro.disconnect());
   }
   let currentLang = lang;
   let highlighted = false;
@@ -485,10 +516,57 @@ export function codeBox(opts = {}) {
   };
 }
 
-export function api(path, data) {
+/** 网络工具通用请求守卫：发起新请求时取消旧请求，工具卸载时中止全部在途请求 */
+export function createGuard(root) {
+  let seq = 0;
+  let ctrl = null;
+  const stop = () => {
+    seq++;
+    if (ctrl) {
+      ctrl.abort();
+      ctrl = null;
+    }
+  };
+  onDispose(root, stop);
+  return {
+    begin() {
+      stop();
+      ctrl = new AbortController();
+      return { id: seq, signal: ctrl.signal };
+    },
+    alive(id) {
+      return id === seq;
+    },
+    cancel: stop,
+  };
+}
+
+/** 统一的后端调用：默认 60s 超时，支持外部 signal 取消（切换工具/发起新请求） */
+export function api(path, data, opts = {}) {
+  const timeout = Number(opts.timeout) > 0 ? Number(opts.timeout) : 60000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  const outer = opts.signal;
+  const onAbort = () => ctrl.abort();
+  if (outer) {
+    if (outer.aborted) onAbort();
+    else outer.addEventListener('abort', onAbort, { once: true });
+  }
   return fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
-  }).then((r) => r.json());
+    signal: ctrl.signal,
+  })
+    .then((r) => r.json())
+    .catch((e) => {
+      if (e && e.name === 'AbortError') {
+        throw new Error(`请求超时（${Math.round(timeout / 1000)} 秒）或已取消`);
+      }
+      throw e;
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      if (outer) outer.removeEventListener('abort', onAbort);
+    });
 }

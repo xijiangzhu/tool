@@ -1,5 +1,5 @@
 /* 时间戳转换（仅本地时区） */
-import { h, copy, esc, remember, pad2, WEEKDAYS, fmtDateTime, formError } from '../ui.js';
+import { h, copy, esc, remember, pad2, WEEKDAYS, fmtDateTime, formError, onDispose } from '../ui.js';
 
 const WEEK = WEEKDAYS;
 
@@ -126,6 +126,8 @@ export default {
     }
     tick();
     timer = loop();
+    // 切换工具时立刻停表，而不是等下一次 tick 才发现 DOM 已移除
+    onDispose(wrap, () => clearInterval(timer));
     wrap.querySelector('#ticking').addEventListener('change', (e) => {
       clearInterval(timer);
       if (e.target.checked) timer = loop();
@@ -142,11 +144,25 @@ export default {
       if (!/^-?\d+$/.test(raw)) return (out.innerHTML = '<div class="alert err">时间戳只能由数字组成</div>');
       const n = Number(raw);
       let ts;
-      if (unit === 's') ts = n * 1000;
-      else if (unit === 'ms') ts = n;
-      else ts = String(Math.abs(n)).length > 11 ? n : n * 1000;
-
-      const unitTxt = unit === 'auto' ? (String(Math.abs(n)).length > 11 ? '毫秒' : '秒') : unit === 's' ? '秒' : '毫秒';
+      let unitTxt;
+      let altMs = null;
+      if (unit === 's') {
+        ts = n * 1000;
+        unitTxt = '秒';
+      } else if (unit === 'ms') {
+        ts = n;
+        unitTxt = '毫秒';
+      } else {
+        // 位数只能区分「13 位毫秒」与「10 位秒」。10~11 位其实也可能是 1970~1973 年的毫秒戳，
+        // 当按秒换算已远超常用范围时，额外给出另一种解读，避免默默显示一个离谱的年份。
+        const asMs = String(Math.abs(n)).length > 11;
+        ts = asMs ? n : n * 1000;
+        unitTxt = asMs ? '毫秒' : '秒';
+        if (!asMs && n * 1000 > Date.UTC(2100, 0, 1)) {
+          const d = new Date(n);
+          if (!Number.isNaN(d.getTime())) altMs = d;
+        }
+      }
       const date = new Date(ts);
       if (Number.isNaN(date.getTime())) {
         return (out.innerHTML = '<div class="alert err">时间戳超出可表示范围（无法转换为日期）</div>');
@@ -158,6 +174,9 @@ export default {
           <tr><th>ISO 8601</th><td class="mono">${date.toISOString()}</td></tr>
           <tr><th>相对现在</th><td>${relative(ts)}</td></tr>
         </table>
+        ${altMs
+          ? `<div class="alert warn mt8">此数值也可能是毫秒时间戳（对应 ${fmtDateTime(n)}）；如需按毫秒解读，请在单位下拉中选择「毫秒」。</div>`
+          : ''}
         <div class="btn-row mt8">
           <button class="btn btn-sm" id="copyLocal">复制本地时间</button>
         </div>

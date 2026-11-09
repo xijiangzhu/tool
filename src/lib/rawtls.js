@@ -58,7 +58,9 @@ function tlv(buf, off) {
     const n = len & 0x7f;
     if (n === 0 || n > 4 || off + 2 + n > buf.length) return null;
     len = 0;
-    for (let i = 0; i < n; i++) len = (len << 8) | buf[off + 2 + i];
+    // 用乘法而非 <<：4 字节长度可达 0xffffffff，有符号移位会变成负数，
+    // 让 end < start 绕过下面的 end > buf.length 校验
+    for (let i = 0; i < n; i++) len = len * 256 + buf[off + 2 + i];
     hdr = 2 + n;
   }
   const start = off + hdr;
@@ -654,7 +656,8 @@ async function probeVersion(host, port, servername, version, timeoutMs) {
         : buildClientHello(servername, { legacyVersion: version });
     await sock.write(hello);
     const deadline = Date.now() + timeoutMs;
-    let pending = new Uint8Array(0);
+    let pending = new Uint8Array(0); // 未凑齐一条 TLS 记录的字节
+    let hs = new Uint8Array(0); // 未凑齐一条握手消息的字节（ServerHello 常跨多条记录）
     while (Date.now() < deadline) {
       const chunk = await sock.read(Math.max(300, deadline - Date.now()));
       if (!chunk) break;
@@ -677,8 +680,15 @@ async function probeVersion(host, port, servername, version, timeoutMs) {
         buf = buf.subarray(5 + len);
         if (type === 0x15) return false; // alert：服务端拒绝该版本
         if (type !== 0x16) continue;
-        if (payload.length >= 4 && payload[0] === 2) {
-          const sh = parseServerHello(payload.subarray(4));
+        // 握手消息可能被拆到多个 TLS 记录里，先按 4 字节握手头累积到完整再解析
+        hs = concat(hs, payload);
+        while (hs.length >= 4) {
+          const msgLen = (hs[1] << 16) | (hs[2] << 8) | hs[3];
+          if (hs.length < 4 + msgLen) break;
+          const msg = hs.subarray(0, 4 + msgLen);
+          hs = hs.subarray(4 + msgLen);
+          if (msg[0] !== 2) continue; // 只关心 ServerHello
+          const sh = parseServerHello(msg.subarray(4));
           if (!sh) return false;
           if (version === 0x0304) return sh.supportedVersion === 0x0304;
           return sh.version === version;

@@ -1,5 +1,5 @@
 /* SSL 证书检测 */
-import { h, api, copy, esc, remember, setBusy, fmtDateTime, formError } from '../ui.js';
+import { h, api, copy, esc, remember, setBusy, fmtDateTime, formError, createGuard, toast } from '../ui.js';
 
 const STATUS_MAP = {
   valid: { cls: 'ok', text: '证书有效' },
@@ -58,6 +58,13 @@ export default {
     const hostEl = wrap.querySelector('#host');
     remember(hostEl, 'ssl.host');
     const hostErr = formError(wrap.querySelector('.field-row'), hostEl);
+    const portEl = wrap.querySelector('#port');
+    // 记录端口框里的值是否由「粘贴带端口的 URL」自动带入：
+    // 下次换一个不带端口的域名时不能继续沿用旧端口
+    let autoPort = false;
+    portEl.addEventListener('input', () => {
+      autoPort = false;
+    });
 
     function normalizeTarget(raw) {
       let s = String(raw || '').trim();
@@ -70,8 +77,10 @@ export default {
         throw new Error('地址格式不正确，请填写域名或完整 URL');
       }
       if (!u.hostname) throw new Error('地址中缺少域名');
-      return { host: u.hostname, port: u.port ? Number(u.port) : null };
+      return { host: u.hostname, port: u.port ? Number(u.port) : null, scheme: u.protocol };
     }
+
+    const guard = createGuard(wrap);
 
     async function run() {
       let target;
@@ -82,20 +91,36 @@ export default {
       }
       hostErr.clear();
       const host = target.host;
-      const port = target.port || Number(wrap.querySelector('#port').value || 443);
-      if (target.port) wrap.querySelector('#port').value = target.port;
+      let port;
+      if (target.port) {
+        port = target.port;
+        portEl.value = target.port;
+        autoPort = true;
+      } else {
+        if (autoPort) {
+          portEl.value = 443;
+          autoPort = false;
+        }
+        port = Number(portEl.value || 443);
+      }
+      if (target.scheme === 'http:' && !target.port) {
+        toast('输入的是 http:// 地址，证书检测仍按 TLS 默认端口 443 进行');
+      }
 
+      const task = guard.begin();
       setBusy(goBtn, true, '检测中');
       resultEl.innerHTML = '<div class="card"><div class="card-body"><div class="empty">正在检测 ' + esc(host) + ':' + port + ' 的证书…</div></div></div>';
 
       let res;
       try {
-        res = await api('/api/ssl', { host, port });
+        res = await api('/api/ssl', { host, port }, { signal: task.signal });
       } catch (e) {
+        if (!guard.alive(task.id)) return;
         setBusy(goBtn, false);
         resultEl.innerHTML = `<div class="card"><div class="card-body"><div class="alert err">请求失败：${esc(e.message)}</div></div></div>`;
         return;
       }
+      if (!guard.alive(task.id)) return;
       setBusy(goBtn, false);
       if (!res.ok) {
         resultEl.innerHTML = `<div class="card"><div class="card-body"><div class="alert err">${esc(res.error)}</div></div></div>`;

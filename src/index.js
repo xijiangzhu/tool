@@ -42,7 +42,13 @@ export async function handle(request, env = {}, ctx = {}) {
   }
 
   if (pathname.startsWith('/api/')) {
-    // 仅允许同源页面调用：避免任意网站借浏览器访问本机 / 云端转发接口
+    // 仅允许同源页面调用：避免任意网站借浏览器访问本机 / 云端转发接口。
+    // Sec-Fetch-Site 由浏览器设置、页面无法伪造，可兜住「伪造 Host 头绕过同源比较」；
+    // curl / 脚本调用不带这个头，保持可用（非浏览器请求本身不构成 CSRF）。
+    const fetchSite = request.headers.get('sec-fetch-site');
+    if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+      return json({ ok: false, error: '不允许跨站调用接口' }, 403);
+    }
     const origin = request.headers.get('origin');
     if (origin) {
       let sameOrigin = false;
@@ -65,7 +71,10 @@ export async function handle(request, env = {}, ctx = {}) {
       const data = await route.fn(input, { request, env, ctx });
       return json(route.wrap ? { ok: true, data } : data);
     } catch (e) {
-      return json({ ok: false, error: (e && e.message) || String(e) }, 500);
+      // 参数 / 请求体问题（HttpError）返回 4xx，真正的内部异常才返回 500
+      const s = Number(e && e.status);
+      const status = s >= 400 && s < 600 ? s : 500;
+      return json({ ok: false, error: (e && e.message) || String(e) }, status);
     }
   }
 
@@ -118,8 +127,9 @@ async function startServer() {
       }
       if (tooLarge) {
         req.destroy();
-        res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('413 请求体过大（上限 5MB）');
+        // 与 handle() 的 JSON 错误格式一致，前端 api() 才能正常解析并提示
+        res.writeHead(413, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: '请求体过大（上限 5MB）' }));
         return;
       }
       const raw = chunks.length ? Buffer.concat(chunks) : undefined;

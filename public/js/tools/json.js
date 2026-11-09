@@ -111,7 +111,9 @@ export default {
 
     function showError(e) {
       statBar.style.display = 'none';
-      let html = `<div class="alert err">JSON 解析失败：${esc(e.msg)}`;
+      // white-space:pre-wrap 直接保留换行与缩进空格；不能对整段 HTML 做 replace(/ /g)，
+      // 那会把 class="alert err" 里的空格也替换掉，错误条样式失效
+      let html = `<div class="alert err" style="white-space:pre-wrap">JSON 解析失败：${esc(e.msg)}`;
       if (e.line) {
         html += `\n位置：第 ${e.line} 行第 ${e.col} 列`;
         const lines = inBox.getValue().split('\n');
@@ -120,7 +122,7 @@ export default {
         html += `\n\n${e.line} | ${esc(l)}\n${' '.repeat(String(e.line).length + 3)}${caret}`;
       }
       html += '</div>';
-      msgEl.innerHTML = html.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+      msgEl.innerHTML = html;
     }
 
     function transform(kind) {

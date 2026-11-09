@@ -1,5 +1,5 @@
 /* 文件差异对比：逐行 diff（Myers），支持并排 / 统一视图 */
-import { h, debounce, copy, download } from '../ui.js';
+import { h, debounce, copy, download, onDispose } from '../ui.js';
 
 const SAMPLE_A = [
   'server:',
@@ -445,6 +445,7 @@ export default {
     if (typeof ResizeObserver === 'function') {
       const ro = new ResizeObserver(syncContain);
       vScrolls.forEach((el) => ro.observe(el));
+      onDispose(wrap, () => ro.disconnect());
     }
 
     let fileA = '';
@@ -665,13 +666,18 @@ export default {
     });
 
     let rt = null;
-    window.addEventListener('resize', () => {
+    const onResize = () => {
       clearTimeout(rt);
       rt = setTimeout(() => {
         charW = 0;
         fitWidth();
         fitHeights();
       }, 120);
+    };
+    window.addEventListener('resize', onResize);
+    onDispose(wrap, () => {
+      clearTimeout(rt);
+      window.removeEventListener('resize', onResize);
     });
 
     [igWs, igCase].forEach((cb) => cb.addEventListener('change', run));
